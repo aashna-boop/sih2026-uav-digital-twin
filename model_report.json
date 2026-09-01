@@ -1,0 +1,214 @@
+{
+  "classes": [
+    "cooling_failure",
+    "healthy",
+    "oil_pressure_drop",
+    "valve_wear"
+  ],
+  "features": [
+    "rpm",
+    "egt_c",
+    "cht_c",
+    "oil_temp_c",
+    "oil_pressure_bar",
+    "fuel_flow_lph",
+    "vibration",
+    "airspeed",
+    "load",
+    "roll",
+    "pitch",
+    "rpm_resid",
+    "egt_c_resid",
+    "cht_c_resid",
+    "oil_temp_c_resid",
+    "oil_pressure_bar_resid",
+    "fuel_flow_lph_resid",
+    "vibration_resid",
+    "rpm_resid_pct",
+    "egt_c_resid_pct",
+    "cht_c_resid_pct",
+    "oil_temp_c_resid_pct",
+    "oil_pressure_bar_resid_pct",
+    "fuel_flow_lph_resid_pct",
+    "vibration_resid_pct"
+  ],
+  "train_rows": 48500,
+  "test_rows": 16216,
+  "chronological_split_cutoff_sec": 485.0,
+  "classification_accuracy": 1.0,
+  "classification_report": {
+    "cooling_failure": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4054.0
+    },
+    "healthy": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4054.0
+    },
+    "oil_pressure_drop": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4054.0
+    },
+    "valve_wear": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 4054.0
+    },
+    "accuracy": 1.0,
+    "macro avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 16216.0
+    },
+    "weighted avg": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 16216.0
+    }
+  },
+  "confusion_matrix": [
+    [
+      4054,
+      0,
+      0,
+      0
+    ],
+    [
+      0,
+      4054,
+      0,
+      0
+    ],
+    [
+      0,
+      0,
+      4054,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      4054
+    ]
+  ],
+  "severity_mae": 0.10386152119180382,
+  "severity_r2": 0.5900364691415638,
+  "rul_mae": 0.10413056038538064,
+  "rul_r2": 0.5858765459591848,
+  "shap_top_features_per_class": {
+    "cooling_failure": [
+      {
+        "feature": "roll",
+        "mean_abs_shap": 1.9510096311569214
+      },
+      {
+        "feature": "cht_c",
+        "mean_abs_shap": 1.1030267477035522
+      },
+      {
+        "feature": "cht_c_resid",
+        "mean_abs_shap": 0.9269223809242249
+      },
+      {
+        "feature": "oil_temp_c",
+        "mean_abs_shap": 0.913381040096283
+      },
+      {
+        "feature": "oil_temp_c_resid",
+        "mean_abs_shap": 0.8903564810752869
+      },
+      {
+        "feature": "egt_c",
+        "mean_abs_shap": 0.7650872468948364
+      }
+    ],
+    "healthy": [
+      {
+        "feature": "oil_temp_c",
+        "mean_abs_shap": 1.636365294456482
+      },
+      {
+        "feature": "egt_c",
+        "mean_abs_shap": 1.4150776863098145
+      },
+      {
+        "feature": "rpm_resid",
+        "mean_abs_shap": 0.5300489664077759
+      },
+      {
+        "feature": "roll",
+        "mean_abs_shap": 0.479977548122406
+      },
+      {
+        "feature": "cht_c_resid",
+        "mean_abs_shap": 0.4313048720359802
+      },
+      {
+        "feature": "cht_c",
+        "mean_abs_shap": 0.400127649307251
+      }
+    ],
+    "oil_pressure_drop": [
+      {
+        "feature": "oil_pressure_bar_resid",
+        "mean_abs_shap": 1.1720056533813477
+      },
+      {
+        "feature": "oil_pressure_bar",
+        "mean_abs_shap": 1.0109026432037354
+      },
+      {
+        "feature": "oil_pressure_bar_resid_pct",
+        "mean_abs_shap": 0.7570967078208923
+      },
+      {
+        "feature": "pitch",
+        "mean_abs_shap": 0.5440335273742676
+      },
+      {
+        "feature": "rpm",
+        "mean_abs_shap": 0.5262796878814697
+      },
+      {
+        "feature": "roll",
+        "mean_abs_shap": 0.42295822501182556
+      }
+    ],
+    "valve_wear": [
+      {
+        "feature": "rpm",
+        "mean_abs_shap": 1.2685375213623047
+      },
+      {
+        "feature": "roll",
+        "mean_abs_shap": 1.0439971685409546
+      },
+      {
+        "feature": "egt_c",
+        "mean_abs_shap": 0.8368505239486694
+      },
+      {
+        "feature": "rpm_resid_pct",
+        "mean_abs_shap": 0.6389837265014648
+      },
+      {
+        "feature": "rpm_resid",
+        "mean_abs_shap": 0.6379116177558899
+      },
+      {
+        "feature": "oil_temp_c",
+        "mean_abs_shap": 0.5004572868347168
+      }
+    ]
+  }
+}
