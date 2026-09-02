@@ -1,45 +1,58 @@
-const SENSOR_META = {
-  rpm:              { label: 'RPM',              unit: '',    range: 6200, fmt: v => Math.round(v) },
-  egt_c:            { label: 'Exhaust Gas Temp', unit: '°C',  range: 850,  fmt: v => Math.round(v) },
-  cht_c:            { label: 'Cylinder Head Temp',unit: '°C', range: 220,  fmt: v => Math.round(v) },
-  oil_temp_c:       { label: 'Oil Temp',         unit: '°C',  range: 110,  fmt: v => Math.round(v) },
-  oil_pressure_bar: { label: 'Oil Pressure',     unit: 'bar', range: 5.5,  fmt: v => v.toFixed(2) },
-  fuel_flow_lph:    { label: 'Fuel Flow',        unit: 'L/h', range: 25,   fmt: v => v.toFixed(1) },
-  vibration:        { label: 'Vibration',        unit: '',    range: 6,    fmt: v => v.toFixed(2) },
-};
+import {
+  SENSOR_CRITICAL_SIGMA,
+  SENSOR_DEVIATING_SIGMA,
+  SENSOR_ORDER,
+  fmt,
+  sensorMeta,
+} from "../lib/telemetry";
 
-export const SENSOR_ORDER = ['rpm', 'egt_c', 'cht_c', 'oil_temp_c', 'oil_pressure_bar', 'fuel_flow_lph', 'vibration'];
+// The deviation colour comes from the backend's normalized residual (sigma),
+// not from an absolute limit - that is the whole point of the twin.
+function deviationClass(z) {
+  const magnitude = Math.abs(Number(z) || 0);
+  if (magnitude >= SENSOR_CRITICAL_SIGMA) return "critical";
+  if (magnitude >= SENSOR_DEVIATING_SIGMA) return "deviating";
+  return "";
+}
 
-export default function SensorList({ sensors, expected }) {
+export default function SensorList({ engine, selected, onSelect }) {
   return (
-    <div>
-      {SENSOR_ORDER.map(s => {
-        const meta = SENSOR_META[s];
-        const val = sensors?.[s];
-        const exp = expected?.[s];
-        const pct = val != null ? Math.max(0, Math.min(100, (val / meta.range) * 100)) : 0;
-        const dev = val != null && exp != null ? Math.abs(val - exp) / meta.range : 0;
-
-        let statusClass = '';
-        if (dev > 0.18) statusClass = 'critical';
-        else if (dev > 0.07) statusClass = 'deviating';
+    <div className="sensor-list">
+      {SENSOR_ORDER.map((key) => {
+        const meta = sensorMeta[key];
+        const actual = engine?.actual?.[key];
+        const expected = engine?.expected?.[key];
+        const z = engine?.normalized_residuals?.[key];
+        const pct =
+          actual != null
+            ? Math.max(0, Math.min(100, (Number(actual) / meta.range) * 100))
+            : 0;
 
         return (
-          <div key={s} className={`sensor-card ${statusClass}`}>
+          <button
+            type="button"
+            key={key}
+            className={`sensor-card ${deviationClass(z)} ${selected === key ? "active" : ""}`}
+            onClick={() => onSelect(key)}
+            aria-pressed={selected === key}
+          >
             <div className="sensor-row">
               <span className="sensor-name">{meta.label}</span>
-              <span className="sensor-value">
-                {val != null ? meta.fmt(val) : '--'}
-              </span>
+              <span className="sensor-value">{fmt(actual, meta.digits)}</span>
             </div>
             <div className="bar-track">
-              <div className="bar-fill" style={{ width: `${pct}%` }} />
+              <div
+                className="bar-fill"
+                style={{ width: `${pct}%`, "--sensor-accent": meta.color }}
+              />
             </div>
             <div className="sensor-sub">
-              <span>expected: {exp != null ? meta.fmt(exp) : '--'}</span>
-              <span>{meta.unit}</span>
+              <span>twin {fmt(expected, meta.digits)}</span>
+              <span>
+                {fmt(z, 2)}σ · {meta.unit}
+              </span>
             </div>
-          </div>
+          </button>
         );
       })}
     </div>

@@ -1,0 +1,8 @@
+# Do not remove this pin. @splinetool/react-spline declares its runtime peer as
+# "*", which resolves to @splinetool/runtime 2.0.25 - a version whose own
+# dependency @splinetool/animation-core is not published on npm, so a fresh
+# install fails with ERR_PNPM_FETCH_404. package.json therefore pins
+# @splinetool/runtime to 2.0.29 (the version the team `main` frontend resolves),
+# and this exclude lets pnpm install that pin without a release-age prompt.
+minimumReleaseAgeExclude:
+  - '@splinetool/runtime@2.0.29'

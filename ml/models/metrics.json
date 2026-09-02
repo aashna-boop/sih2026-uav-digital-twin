@@ -1,0 +1,145 @@
+{
+  "synthetic_simulation_based": true,
+  "dataset_rows": 86856,
+  "model_schema_version": 2,
+  "models": {
+    "classifier": "XGBoost multi-class classifier",
+    "classifier_format": "portable UBJ",
+    "explainability": "native exact TreeSHAP pred_contribs",
+    "rul": "calibrated scikit-learn quantile gradient boosting",
+    "xgboost_version": "3.4.1",
+    "scikit_learn_version": "1.9.0"
+  },
+  "profiles": {
+    "train": [
+      "high_altitude_calm",
+      "high_altitude_tailwind",
+      "loiter_headwind",
+      "loiter_tailwind",
+      "maritime_calm",
+      "relay_headwind",
+      "surveillance_calm",
+      "surveillance_tailwind"
+    ],
+    "validation": [
+      "maritime_headwind",
+      "surveillance_headwind"
+    ],
+    "test": [
+      "loiter_calm",
+      "relay_tailwind"
+    ],
+    "heldout_demo": [
+      "high_altitude_headwind",
+      "maritime_tailwind",
+      "relay_calm"
+    ]
+  },
+  "classification": {
+    "labels": [
+      "COOLING_DEGRADATION",
+      "HEALTHY",
+      "IGNITION_MISFIRE",
+      "LUBRICATION_DEGRADATION",
+      "VALVE_WEAR"
+    ],
+    "macro_f1": 0.9852708756027739,
+    "temporal_persistence_frames": 4,
+    "report": {
+      "COOLING_DEGRADATION": {
+        "precision": 1.0,
+        "recall": 0.9683609958506224,
+        "f1-score": 0.9839262187088273,
+        "support": 1928.0
+      },
+      "HEALTHY": {
+        "precision": 0.9694711193922889,
+        "recall": 1.0,
+        "f1-score": 0.9844989447638455,
+        "support": 6764.0
+      },
+      "IGNITION_MISFIRE": {
+        "precision": 1.0,
+        "recall": 0.9787344398340249,
+        "f1-score": 0.9892529488859764,
+        "support": 1928.0
+      },
+      "LUBRICATION_DEGRADATION": {
+        "precision": 0.9978552278820375,
+        "recall": 0.9652489626556017,
+        "f1-score": 0.9812813076720274,
+        "support": 1928.0
+      },
+      "VALVE_WEAR": {
+        "precision": 1.0,
+        "recall": 0.975103734439834,
+        "f1-score": 0.9873949579831933,
+        "support": 1928.0
+      },
+      "accuracy": 0.9850096711798839,
+      "macro avg": {
+        "precision": 0.9934652694548654,
+        "recall": 0.9774896265560166,
+        "f1-score": 0.9852708756027739,
+        "support": 14476.0
+      },
+      "weighted avg": {
+        "precision": 0.9854495393013271,
+        "recall": 0.9850096711798839,
+        "f1-score": 0.9850129965245025,
+        "support": 14476.0
+      }
+    },
+    "confusion_matrix": [
+      [
+        1867,
+        57,
+        0,
+        4,
+        0
+      ],
+      [
+        0,
+        6764,
+        0,
+        0,
+        0
+      ],
+      [
+        0,
+        41,
+        1887,
+        0,
+        0
+      ],
+      [
+        0,
+        67,
+        0,
+        1861,
+        0
+      ],
+      [
+        0,
+        48,
+        0,
+        0,
+        1880
+      ]
+    ],
+    "false_alarm_events_per_healthy_hour": 0.0
+  },
+  "early_warning": {
+    "mean_lead_time_sec": 86.80555555555556,
+    "median_lead_time_sec": 69.5,
+    "evaluated_runs": 36
+  },
+  "rul": {
+    "mae_minutes": 2.06210883726484,
+    "interval_coverage": 0.9204295154185022,
+    "validation_calibration_padding_minutes": 1.7631024740301946,
+    "test_samples": 7264
+  },
+  "validation_rows": 14476,
+  "test_rows": 14476
+}

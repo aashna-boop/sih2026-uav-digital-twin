@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "classifier_file": "fault_classifier.ubj",
+  "classifier_format": "xgboost_ubj",
+  "feature_count": 36,
+  "labels": [
+    "COOLING_DEGRADATION",
+    "HEALTHY",
+    "IGNITION_MISFIRE",
+    "LUBRICATION_DEGRADATION",
+    "VALVE_WEAR"
+  ],
+  "xgboost_version": "3.4.1",
+  "scikit_learn_version": "1.9.0",
+  "dataset_sha256": "62e43f5ef7117fb006f6a446301e1d22c9dd7250c13b5ea6e8f2f6a8c7b5b66e",
+  "dataset_rows": 86856,
+  "profile_split": {
+    "train": [
+      "high_altitude_calm",
+      "high_altitude_tailwind",
+      "loiter_headwind",
+      "loiter_tailwind",
+      "maritime_calm",
+      "relay_headwind",
+      "surveillance_calm",
+      "surveillance_tailwind"
+    ],
+    "validation": [
+      "maritime_headwind",
+      "surveillance_headwind"
+    ],
+    "test": [
+      "loiter_calm",
+      "relay_tailwind"
+    ],
+    "heldout_demo": [
+      "high_altitude_headwind",
+      "maritime_tailwind",
+      "relay_calm"
+    ]
+  }
+}

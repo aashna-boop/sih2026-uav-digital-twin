@@ -1,7 +1,8 @@
-fastapi
-uvicorn[standard]
-websockets
-joblib
-pandas
-numpy
-xgboost
+fastapi>=0.116,<1
+uvicorn[standard]>=0.35,<1
+numpy>=2.0,<3
+pandas>=2.2,<4
+scikit-learn==1.9.0
+joblib>=1.4,<2
+pymavlink>=2.4.49,<3
+xgboost==3.4.1
