@@ -18,6 +18,7 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -32,6 +33,12 @@ FEATURES = (
 )
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------- Load models once at startup ----------
 clf = joblib.load("model_fault_classifier.joblib")

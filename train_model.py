@@ -129,11 +129,11 @@ for c, feats in shap_summary.items():
     print(c, [f"{f['feature']}={f['mean_abs_shap']:.3f}" for f in feats])
 
 # ================= Save everything =================
-joblib.dump(clf, '/home/claude/model_fault_classifier.joblib')
-joblib.dump(reg_sev, '/home/claude/model_severity_regressor.joblib')
-joblib.dump(reg_rul, '/home/claude/model_rul_regressor.joblib')
+joblib.dump(clf, 'model_fault_classifier.joblib')
+joblib.dump(reg_sev, 'model_severity_regressor.joblib')
+joblib.dump(reg_rul, 'model_rul_regressor.joblib')
 
-with open('/home/claude/model_report.json', 'w') as f:
+with open('model_report.json', 'w') as f:
     json.dump({
         'classes': CLASSES,
         'features': FEATURES,
@@ -151,4 +151,3 @@ with open('/home/claude/model_report.json', 'w') as f:
     }, f, indent=2)
 
 print("\nSaved: model_fault_classifier.joblib, model_severity_regressor.joblib, model_rul_regressor.joblib, model_report.json")
-EOF
