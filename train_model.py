@@ -52,7 +52,7 @@ for src in RAW.source_file.unique():
     frames.append(run)
 full = pd.concat(frames, ignore_index=True)
 
-FEATURES = SENSORS + [f'{s}_resid' for s in SENSORS] + [f'{s}_resid_pct' for s in SENSORS]
+FEATURES = SENSORS + FLIGHT_STATE + [f'{s}_resid' for s in SENSORS] + [f'{s}_resid_pct' for s in SENSORS]
 
 # ---------- Chronological split (train on early flight, test on later/more-progressed) ----------
 CUTOFF_T = 485.0  # ~75% of the 647s flight
