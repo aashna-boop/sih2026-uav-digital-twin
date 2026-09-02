@@ -7,41 +7,41 @@
 /* ---- Tokens ---- */
 :root {
   /* Background layers */
-  --bg-base: #020509;
-  --bg-surface: #0a111a;
-  --bg-elevated: #0f1a28;
-  --bg-glass: rgba(10, 20, 35, 0.4);
-  --bg-glass-hover: rgba(15, 30, 50, 0.55);
+  --bg-base: #030305;
+  --bg-surface: #0a0a0f;
+  --bg-elevated: #111116;
+  --bg-glass: rgba(5, 5, 10, 0.5);
+  --bg-glass-hover: rgba(15, 15, 20, 0.7);
 
   /* Borders */
-  --border-subtle: rgba(74, 160, 224, 0.25);
-  --border-default: rgba(74, 160, 224, 0.4);
-  --border-strong: rgba(74, 160, 224, 0.6);
-  --border-glow: rgba(74, 160, 224, 0.8);
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --border-glow: rgba(176, 38, 255, 0.4);
 
   /* Text */
-  --text-primary: #ECF0F6;
-  --text-secondary: #92A5BD;
-  --text-tertiary: #5E7490;
-  --text-disabled: #3A5068;
+  --text-primary: #F0F0F5;
+  --text-secondary: #A0A0B0;
+  --text-tertiary: #606075;
+  --text-disabled: #404050;
 
   /* Accent palette */
-  --accent-teal: #30D5A8;
-  --accent-teal-dim: rgba(48, 213, 168, 0.12);
-  --accent-teal-glow: rgba(48, 213, 168, 0.25);
+  --accent-teal: #00E5FF; /* Neon Blue */
+  --accent-teal-dim: rgba(0, 229, 255, 0.1);
+  --accent-teal-glow: rgba(0, 229, 255, 0.3);
 
-  --accent-amber: #F4B740;
-  --accent-amber-dim: rgba(244, 183, 64, 0.12);
-  --accent-amber-glow: rgba(244, 183, 64, 0.25);
+  --accent-amber: #B026FF; /* Neon Purple */
+  --accent-amber-dim: rgba(176, 38, 255, 0.1);
+  --accent-amber-glow: rgba(176, 38, 255, 0.3);
 
-  --accent-red: #EF4B54;
-  --accent-red-dim: rgba(239, 75, 84, 0.12);
-  --accent-red-glow: rgba(239, 75, 84, 0.25);
+  --accent-red: #FF003C; /* Neon Red */
+  --accent-red-dim: rgba(255, 0, 60, 0.1);
+  --accent-red-glow: rgba(255, 0, 60, 0.3);
 
-  --accent-blue: #4AA0E4;
-  --accent-blue-dim: rgba(74, 160, 228, 0.12);
+  --accent-blue: #00E5FF; /* Neon Blue */
+  --accent-blue-dim: rgba(0, 229, 255, 0.1);
 
-  --accent-purple: #A67BFF;
+  --accent-purple: #B026FF; /* Neon Purple */
 
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
@@ -96,8 +96,8 @@ body::before {
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(74, 160, 228, 0.06), transparent),
-    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(48, 213, 168, 0.04), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(176, 38, 255, 0.1), transparent),
+    radial-gradient(ellipse 60% 40% at 80% 100%, rgba(255, 0, 60, 0.08), transparent);
   pointer-events: none;
   z-index: 0;
 }
@@ -119,20 +119,20 @@ body::before {
 
 /* ---- Glass Panel ---- */
 .glass-panel {
-  background: linear-gradient(135deg, rgba(10, 20, 35, 0.6), rgba(15, 30, 50, 0.2));
-  backdrop-filter: blur(24px) saturate(150%);
-  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  background: rgba(10, 10, 15, 0.4);
+  backdrop-filter: blur(32px) saturate(120%);
+  -webkit-backdrop-filter: blur(32px) saturate(120%);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-lg);
   padding: var(--space-lg);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
   transition: border-color var(--duration-normal) var(--ease-out),
               box-shadow var(--duration-normal) var(--ease-out),
               transform var(--duration-normal) var(--ease-out);
 }
 .glass-panel:hover {
   border-color: var(--border-default);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.1), 0 0 15px var(--accent-teal-glow);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.8), 0 0 15px var(--accent-amber-glow);
   transform: translateY(-2px);
 }
 
@@ -681,3 +681,85 @@ body::before {
 .data-flash {
   animation: dataFlash 0.3s var(--ease-out);
 }
+.landing-container {
+  width: 100%;
+  background-color: var(--bg-base);
+}
+
+.landing-section {
+  height: 100vh;
+  width: 100vw;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.scroll-indicator {
+  position: absolute;
+  bottom: 40px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  animation: bounce 2s infinite;
+  pointer-events: none;
+}
+
+.scroll-indicator .arrow {
+  font-size: 20px;
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0) translateX(-50%); }
+  40% { transform: translateY(-10px) translateX(-50%); }
+  60% { transform: translateY(-5px) translateX(-50%); }
+}
+
+.content-section {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  text-align: center;
+  flex-direction: column;
+}
+
+.landing-content h1 {
+  font-size: 48px;
+  font-weight: 800;
+  margin-bottom: var(--space-md);
+  background: linear-gradient(135deg, var(--text-primary), var(--accent-blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.landing-content p {
+  font-size: 18px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-2xl);
+  max-width: 600px;
+}
+
+.go-dashboard-btn {
+  background: linear-gradient(135deg, var(--accent-teal), #E6A020);
+  color: #1A1100;
+  padding: 16px 32px;
+  border-radius: var(--radius-lg);
+  font-size: 16px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(220, 95, 0, 0.4);
+  transition: all var(--duration-normal) var(--ease-out);
+}
+
+.go-dashboard-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 28px rgba(220, 95, 0, 0.6);
+}
+
