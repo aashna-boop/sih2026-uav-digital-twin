@@ -76,6 +76,16 @@ A single-page dashboard (`static/index.html`) that streams predictions in real t
 
 The operator sees the recommendation. They decide what to do. Nothing acts automatically.
 
+Below the live view, three panels cover the problem statement's dashboard requirements (Section F), and the reports double as post-flight analysis:
+
+- **Engine efficiency trends.** Four twin-relative indices, each smoothed and plotted over the flight with a slope per minute: fuel efficiency (RPM per L/h against the twin's expectation), lubrication (oil pressure against the twin), CHT excess over the twin (°C), and a model health index (100 − severity × 100). The coloured bands are display bands taken from this dataset. They are not manufacturer limits.
+- **Maintenance advisory.** Each fault type has its own checks, graded early → inspect before next flight → critical by the same severity thresholds as the alerts. For example, oil pressure drop at the inspect level says "Inspect oil system before next flight: oil level, filter, external leaks at lines and fittings." The advisory only appears once the model has made the same fault prediction 3 times in a row, which filters out classifier flicker near onset. It can only escalate within a run, and it lists the engine sensors with the strongest positive SHAP contribution as evidence.
+- **Mission-wise health reports.** Every run is recorded. A report closes when you switch runs or the replay loops back to t=0. Each one shows the outcome, when the model confirmed the fault, the true onset from ground truth, detection latency, first Monitor/Critical times, peak severity, minimum RUL, per-sample agreement with ground truth, charts of severity and efficiency over time, the advisory, and a timeline of events and operator actions. It exports to CSV, JSON or print/PDF.
+
+On the replayed dataset runs, confirmed detection came 16 s after true onset for valve wear, 6 s for cooling failure and 4 s for oil pressure drop. These figures depend on sampling: at the default replay speed the dashboard gets one sample per 2 s of flight.
+
+The logic lives in `frontend/src/lib/missionAnalytics.js` and is used by both dashboards. `static/index.html` holds an inlined copy, so after editing the module, run `python scripts/sync_dashboard_analytics.py`.
+
 ---
 
 ## Two backends, same dashboard
@@ -144,6 +154,9 @@ rc 2 1500      # level off
 | `app.py` | Replay backend |
 | `app_live.py` | Live SITL backend |
 | `static/index.html` | Dashboard — shared by both backends |
+| `frontend/src/lib/missionAnalytics.js` | Efficiency trends, maintenance advisory and mission-report logic (Section F) |
+| `frontend/src/components/SectionF.jsx` | React panels for trends, advisory and mission reports |
+| `scripts/sync_dashboard_analytics.py` | Copies the analytics module into `static/index.html` |
 | `MODEL_REPORT.md` | Detailed model documentation including calibration notes |
 | `PROJECT_DOCUMENTATION.md` | Full project write-up in plain language |
 

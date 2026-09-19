@@ -1,0 +1,77 @@
+/* Section F — efficiency trends, maintenance advisory, mission reports */
+.sf {
+  /* Map the vanilla dashboard's tokens (used by missionAnalytics.js renderers) onto this app's theme */
+  --bg: var(--bg-base); --panel: var(--bg-surface); --panel-2: var(--bg-elevated);
+  --line: var(--border-subtle); --line-strong: var(--border-default);
+  --text: var(--text-primary); --text-dim: var(--text-secondary); --text-faint: var(--text-tertiary);
+  --teal: #2FBF8F; --teal-dim: rgba(47,191,143,0.12);
+  --amber: #F2A93C; --amber-dim: rgba(242,169,60,0.14);
+  --red: var(--accent-red); --red-dim: var(--accent-red-dim);
+  --blue: #4A9FE0;
+  --mono: var(--font-mono); --sans: var(--font-sans);
+  color: var(--text-primary);
+}
+.sf canvas { display: block; width: 100%; }
+.sf .row2 { margin-top: var(--space-lg); }
+.sf .reports-panel { margin-top: var(--space-lg); }
+/* ---- Section F: trends / advisory / mission reports ---- */
+.sf .row2{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-top:16px;align-items:start;}
+@media (max-width:1000px){.sf .row2{grid-template-columns:1fr;}}
+.sf .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+.sf .tab{background:var(--panel-2);border:1px solid var(--line-strong);color:var(--text-dim);padding:5px 10px;border-radius:4px;font-size:11.5px;font-weight:600;cursor:pointer;font-family:var(--sans);}
+.sf .tab.active{border-color:var(--blue);color:var(--text);}
+.sf .trend-help{font-size:11px;color:var(--text-faint);margin:6px 0 10px;}
+.sf .chips{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+@media (max-width:600px){.sf .chips{grid-template-columns:repeat(2,1fr);}}
+.sf .chip{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:4px;padding:7px 9px;cursor:pointer;}
+.sf .chip.watch{border-left-color:var(--amber);} .sf .chip.degraded{border-left-color:var(--red);}
+.sf .chip .c-lbl{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint);}
+.sf .chip .c-val{font-family:var(--mono);font-size:15px;font-weight:700;}
+.sf .chip .c-slope{font-family:var(--mono);font-size:10.5px;color:var(--text-dim);}
+.sf .footnote{font-size:10.5px;color:var(--text-faint);margin-top:8px;line-height:1.5;}
+.sf .adv-level{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 8px;border-radius:3px;margin-bottom:8px;}
+.sf .adv-early{background:var(--panel-2);color:var(--blue);border:1px solid var(--blue);}
+.sf .adv-monitor{background:var(--amber-dim);color:var(--amber);}
+.sf .adv-critical{background:var(--red-dim);color:var(--red);}
+.sf .adv-nominal{background:var(--teal-dim);color:var(--teal);}
+.sf .adv-system{font-size:14px;font-weight:700;margin:0 0 2px;}
+.sf .adv-meta{font-size:11px;color:var(--text-faint);margin-bottom:8px;}
+.sf .adv-list{margin:0 0 10px;padding-left:18px;font-size:12.5px;line-height:1.55;}
+.sf .adv-list li{margin-bottom:4px;}
+.sf .adv-evidence{font-size:11px;color:var(--text-dim);border-top:1px solid var(--line);padding-top:8px;}
+.sf .reports-panel{margin-top:16px;}
+.sf .rep-table{width:100%;border-collapse:collapse;font-size:12px;}
+.sf .rep-table th{text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint);font-weight:700;padding:6px 8px;border-bottom:1px solid var(--line-strong);}
+.sf .rep-table td{padding:7px 8px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11.5px;}
+.sf .rep-table td.name{font-family:var(--sans);font-weight:600;}
+.sf .rep-actions button{background:none;border:1px solid var(--line-strong);color:var(--text-dim);border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;margin-right:4px;font-family:var(--sans);}
+.sf .rep-actions button:hover{color:var(--text);border-color:var(--blue);}
+.sf .live-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:6px;vertical-align:middle;}
+.sf .tag{font-family:var(--mono);font-size:10.5px;font-weight:700;padding:2px 6px;border-radius:3px;}
+.sf .overflow-x{overflow-x:auto;}
+.sf .modal{position:fixed;inset:0;background:rgba(5,10,16,0.78);display:none;align-items:flex-start;justify-content:center;padding:30px 16px;overflow-y:auto;z-index:1000;}
+.sf .modal.show{display:flex;}
+.sf .modal-card{background:var(--panel);border:1px solid var(--line-strong);border-radius:8px;max-width:960px;width:100%;padding:20px 22px;}
+.sf .modal-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;border-bottom:1px solid var(--line-strong);padding-bottom:12px;margin-bottom:14px;}
+.sf .modal-head h2{margin:0 0 4px;font-size:17px;}
+.sf .modal-head p{margin:0;font-size:11.5px;color:var(--text-dim);}
+.sf .kv-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;}
+@media (max-width:700px){.sf .kv-grid{grid-template-columns:repeat(2,1fr);}}
+.sf .kv{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:8px 10px;}
+.sf .kv .k{font-size:10px;text-transform:uppercase;letter-spacing:0.5px;color:var(--text-faint);}
+.sf .kv .v{font-family:var(--mono);font-size:14px;font-weight:700;margin-top:2px;}
+.sf .kv .s{font-size:10.5px;color:var(--text-faint);margin-top:2px;}
+.sf .rep-h{font-size:11px;text-transform:uppercase;letter-spacing:0.8px;color:var(--text-faint);font-weight:700;margin:16px 0 8px;}
+.sf .rep-legend{display:flex;gap:14px;font-size:11px;color:var(--text-dim);margin-top:6px;flex-wrap:wrap;}
+.sf .rep-legend i{display:inline-block;width:14px;height:2px;vertical-align:middle;margin-right:5px;}
+.sf .timeline{font-family:var(--mono);font-size:11.5px;}
+.sf .timeline div{padding:4px 0;border-bottom:1px solid var(--line);display:flex;gap:12px;}
+.sf .timeline span.t{color:var(--text-faint);flex-shrink:0;width:44px;}
+@media print {
+  body * { visibility: hidden !important; }
+  .sf .modal, .sf .modal * { visibility: visible !important; }
+  .sf .modal { position: absolute; inset: 0 auto auto 0; display: block; background: none; padding: 0; overflow: visible; }
+  .sf .modal-card { border: none; max-width: none; background: #fff; color: #000; }
+  .sf .no-print { display: none !important; }
+  body { background: #fff; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
