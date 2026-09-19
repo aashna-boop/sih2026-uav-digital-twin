@@ -2,6 +2,16 @@
 
 Predictive fault detection for MALE UAV piston engines, built for Smart India Hackathon 2026.
 
+## Finals architecture and deployment deliverables
+
+The documentation below distinguishes source-evidenced capabilities from proposed deployment work against main commit `1198663`:
+
+- [Standalone deployment roadmap](docs/DEPLOYMENT_ROADMAP.md) — vendor-neutral CAN/FADEC integration, onboard processing, secure telemetry, fleet monitoring and injection-timing future scope.
+- [Modular Digital Twin Core Framework](docs/MODULAR_ARCHITECTURE.md) — current boundaries, swappable component contracts, scaling argument and validation plan.
+- [Finals requirements and evidence register](docs/FINALS_REQUIREMENTS_TRACEABILITY.md) — implementation gaps, claim qualifications and acceptance evidence.
+
+The exact official Section A wording has not been supplied; the architecture document is an interpretation of the requested title and modularity objective. These documents do not imply that the proposed hardware, security or fleet features are already implemented.
+
 ---
 
 ## Background
