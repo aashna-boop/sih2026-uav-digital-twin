@@ -1,167 +1,189 @@
-# AegisTwin - SIH26054 Prototype
+# UAV Engine Digital Twin
 
-A replay-first, real-time digital twin demonstrator for MALE UAV piston-engine health monitoring and mission reliability.
+Predictive fault detection for MALE UAV piston engines, built for Smart India Hackathon 2026.
 
-## Current vertical slice
+## Finals architecture and deployment deliverables
 
-- Five-hertz replayed fixed-wing mission telemetry
-- ISA ambient temperature with hot/cold offset support
-- Independent faultable engine plant and healthy reference twin
-- Cooling, lubrication, ignition/misfire, and valve-wear degradation
-- Context-normalized residuals and deterministic health index
-- Profile-separated XGBoost fault classification with exact native TreeSHAP
-- Calibrated quantile RUL estimates with uncertainty bounds
-- Mission Reliability Envelope and advisory decision logic
-- Traditional-threshold versus early twin detection
-- FastAPI/WebSocket API
-- React operations console with a Spline landing experience, flight path, event log, and operator acknowledgement
+The documentation below distinguishes source-evidenced capabilities from proposed deployment work against main commit `1198663`:
 
-The health index is derived deterministically from normalized physical residuals. Fault classification and RUL come from trained models using profile-level train/validation/test separation.
+- [Standalone deployment roadmap](docs/DEPLOYMENT_ROADMAP.md) — vendor-neutral CAN/FADEC integration, onboard processing, secure telemetry, fleet monitoring and injection-timing future scope.
+- [Modular Digital Twin Core Framework](docs/MODULAR_ARCHITECTURE.md) — current boundaries, swappable component contracts, scaling argument and validation plan.
+- [Finals requirements and evidence register](docs/FINALS_REQUIREMENTS_TRACEABILITY.md) — implementation gaps, claim qualifications and acceptance evidence.
 
-## Architecture
+The exact official Section A wording has not been supplied; the architecture document is an interpretation of the requested title and modularity objective. These documents do not imply that the proposed hardware, security or fleet features are already implemented.
 
-```text
-Replay profile / live ArduPilot adapter
-                |
-        +-------+--------+
-        |                |
-Virtual engine     Healthy engine twin
-plant + faults       (never sees fault)
-        |                |
-        +---- residuals--+
-                |
-      health + diagnosis + RUL
-                |
-       mission reliability logic
-                |
-        FastAPI WebSocket
-                |
-         React dashboard
+---
+
+## Background
+
+MALE UAVs (Medium Altitude Long Endurance) stay airborne for 12–24 hours at a stretch. The engine keeping them up is a piston engine — not unlike what you'd find in a light aircraft, sized down. These engines are reliable but not invincible: valve seats wear, cooling degrades, oil pressure fluctuates. The problem isn't that faults happen. It's that by the time they're visible on a gauge, you're already behind.
+
+The standard approach is scheduled maintenance — fly X hours, then inspect. That works but it's conservative by design: you're either replacing parts that still had life left, or you're flying longer than you should between checks because the schedule can't account for individual mission stress.
+
+A digital twin does something different. It builds a model of what the engine *should* be doing right now — at this altitude, this airspeed, this load — and watches how the real sensor data diverges from that. Divergence is information. Identify the pattern of divergence, and you can name the fault. Track it over time, and you can estimate how much runway you have left.
+
+That's what this project is.
+
+---
+
+## What we built
+
+The system has three main parts that fit together: a physics-based engine simulator, a set of trained ML models, and a live dashboard with human-in-the-loop controls.
+
+### The physics model
+
+This is the core of the "twin" idea and the part that makes the whole thing defensible. We didn't generate synthetic data by adding noise to clean numbers. We built an engine simulator modeled on a Rotax 912-class piston engine — the type used in real small UAVs — and drove it with actual ArduPilot SITL flight telemetry.
+
+ArduPilot SITL is real autopilot software, the same codebase that runs on actual hardware. When it simulates a flight, it produces the same telemetry a real drone would: GPS, IMU, airspeed, barometer, attitude. We took that telemetry and fed it into an engine physics model that computes what the engine would actually be doing at each moment:
+
+- RPM responds to throttle position and aerodynamic load, which itself depends on airspeed and altitude
+- Cylinder head temperature rises with load and falls with airspeed-driven cooling, with realistic thermal lag — the temperature doesn't jump instantly, it rises and falls the way real metal does
+- Exhaust gas temperature tracks combustion efficiency
+- Oil pressure and oil temperature evolve with RPM and heat soak
+
+On top of the healthy baseline, we injected four specific fault modes, each with physically-reasoned sensor effects:
+
+**Valve wear** — as a valve seat degrades, cylinder compression drops. Exhaust gas temperature shifts because combustion is less complete. RPM becomes slightly inconsistent. The effect is gradual and starts subtle, which is the point.
+
+**Cooling system failure** — the engine starts losing its ability to shed heat. CHT climbs faster than normal under load and doesn't stabilize the way it should when airspeed increases. Eventually it runs hot even in level flight.
+
+**Oil pressure drop** — oil pressure falls, which increases friction and causes secondary heat rises. The pressure signal itself is the most obvious indicator, but the thermal effects confirm it.
+
+**Ignition fault** — misfires cause EGT spikes and RPM instability. The pattern is distinct from the thermal faults.
+
+All four were injected at realistic onset rates — not step changes, but gradual ramp-ins that mimic how real faults develop.
+
+### The dataset
+
+The physics model produced `engine_master_dataset.csv` — one combined file with labeled healthy and fault-condition runs. The pipeline that built it:
+
+```
+ArduPilot SITL flight log
+    → merge_mission_profile.py   (aligns GPS, IMU, airspeed, baro by timestamp)
+    → engine_physics_model.py    (runs the engine simulation, injects faults)
+    → combine_datasets.py        (merges all runs into one labeled file)
 ```
 
-## Run
+The dataset includes both raw sensor values and residuals — the difference between what the physics model says a healthy engine should show and what the (simulated) engine actually shows. Those residuals are the most informative features for the ML models.
 
-Start the deterministic replay demo in the background:
+### The ML models
 
-```powershell
-.\start-all.ps1
+Three XGBoost models, each answering a different question:
+
+**Fault classifier** — given the current sensor readings and residuals, which state is the engine in? Healthy, valve wear, cooling failure, or oil pressure drop? Trained on the first 75% of each flight, tested on the last 25%. Accuracy on the test set: 100%. This is high but not implausible — each fault has a sufficiently distinct sensor signature that a well-trained classifier can separate them cleanly. We're flagging it because a perfect score always warrants scrutiny, but the confusion matrix and SHAP outputs support it being genuine.
+
+**Severity regressor** — how bad is the fault right now, on a 0–1 scale? R² ≈ 0.59 on the test set. This is harder than classification because severity is a continuous estimate of how far along a degradation process is, not a category membership question. 0.59 is real predictive signal.
+
+**Remaining useful life regressor** — roughly how much time before the fault reaches a critical threshold? Same R² ballpark as severity, same reasoning. These two numbers together give the operator a sense of urgency: is this something to watch over the next hour, or something to act on now?
+
+Every prediction comes with a SHAP explanation — which sensor features drove the decision, and by how much. For an oil pressure fault, oil pressure dominates the explanation. For cooling failure, CHT and its rate of change do. The model's reasoning maps to what an engineer would expect, which matters for operator trust.
+
+One calibration note: the severity and RUL models' predictions top out around 0.32–0.35 in practice, even at the worst point of a fault run, rather than reaching 1.0. The dashboard alert thresholds are set against this observed behavior, not against a theoretical maximum. This is documented in `MODEL_REPORT.md`.
+
+### The dashboard
+
+A single-page dashboard (`static/index.html`) that streams predictions in real time over WebSocket. It shows current sensor readings, the healthy-engine baseline, residuals, fault classification with confidence, severity score, RUL estimate, and the SHAP breakdown for the current prediction. Fault injection buttons let an operator or evaluator trigger a specific fault and watch the system respond.
+
+The operator sees the recommendation. They decide what to do. Nothing acts automatically.
+
+Below the live view, three panels cover the problem statement's dashboard requirements (Section F), and the reports double as post-flight analysis:
+
+- **Engine efficiency trends.** Four twin-relative indices, each smoothed and plotted over the flight with a slope per minute: fuel efficiency (RPM per L/h against the twin's expectation), lubrication (oil pressure against the twin), CHT excess over the twin (°C), and a model health index (100 − severity × 100). The coloured bands are display bands taken from this dataset. They are not manufacturer limits.
+- **Maintenance advisory.** Each fault type has its own checks, graded early → inspect before next flight → critical by the same severity thresholds as the alerts. For example, oil pressure drop at the inspect level says "Inspect oil system before next flight: oil level, filter, external leaks at lines and fittings." The advisory only appears once the model has made the same fault prediction 3 times in a row, which filters out classifier flicker near onset. It can only escalate within a run, and it lists the engine sensors with the strongest positive SHAP contribution as evidence.
+- **Mission-wise health reports.** Every run is recorded. A report closes when you switch runs or the replay loops back to t=0. Each one shows the outcome, when the model confirmed the fault, the true onset from ground truth, detection latency, first Monitor/Critical times, peak severity, minimum RUL, per-sample agreement with ground truth, charts of severity and efficiency over time, the advisory, and a timeline of events and operator actions. It exports to CSV, JSON or print/PDF.
+
+On the replayed dataset runs, confirmed detection came 16 s after true onset for valve wear, 6 s for cooling failure and 4 s for oil pressure drop. These figures depend on sampling: at the default replay speed the dashboard gets one sample per 2 s of flight.
+
+The logic lives in `frontend/src/lib/missionAnalytics.js` and is used by both dashboards. `static/index.html` holds an inlined copy, so after editing the module, run `python scripts/sync_dashboard_analytics.py`.
+
+---
+
+## Two backends, same dashboard
+
+We built this in two configurations because demonstrating it with live data is meaningfully different from replaying a recording, and both matter.
+
+**`app.py` — replay mode.** Reads rows from `engine_master_dataset.csv` sequentially, as if they were arriving live. No external dependencies. This is what you run to evaluate the system, demo it offline, or develop against it. Fault buttons switch the stream to a different fault condition's recorded run.
+
+**`app_live.py` — live mode.** Connects to a real running ArduPilot SITL instance over MAVLink. Instead of reading from a file, `live_engine.py` runs the physics model in real time, ingesting live telemetry as it arrives and computing both the healthy baseline and the fault-affected readings moment by moment. Fault buttons inject a fault into the live simulation, which ramps in gradually just as it did in the offline runs.
+
+`live_engine.py` exists as a separate file from `engine_physics_model.py` because the original script processes a complete flight log in one pass — it needs the whole thing in memory to compute averages and initial conditions. A streaming context doesn't have that luxury. `live_engine.py` is a rewrite of the same equations to work incrementally, updating state one telemetry packet at a time. The physics are identical; only the processing model changed.
+
+---
+
+## Running it
+
+**Replay mode** — no SITL needed:
+
+```bash
+pip install -r requirements.txt
+uvicorn app:app --reload
 ```
 
-Start ArduPlane SITL in WSL2 plus the API and dashboard with one command:
+Open http://localhost:8000. Use the fault buttons on the dashboard to switch between fault conditions.
 
-```powershell
-.\start-live.ps1
+**Live mode** — requires ArduPilot SITL:
+
+Terminal 1, start SITL with a dedicated output port:
+```bash
+cd ~/ardupilot/ArduPlane
+../Tools/autotest/sim_vehicle.py --console --map --out=udp:127.0.0.1:14551
 ```
 
-Live mode connects from Windows to AegisTwin's dedicated ArduPlane TCP `5770`
-channel inside WSL, so it does not require an inbound Windows firewall rule or
-compete with MAVProxy on the default port. If the stream is absent
-or stale, the backend automatically falls back to the deterministic replay
-profile. The dashboard header and footer identify the active source as
-`ARDUPILOT SITL` or `REPLAY`.
-
-Dashboard: `http://127.0.0.1:4173` (landing page; the console is at `/dashboard`)  
-API documentation: `http://127.0.0.1:8000/docs`
-
-Stop the background services:
-
-```powershell
-.\stop-all.ps1
+Terminal 2, start the live backend:
+```bash
+uvicorn app_live:app --reload
 ```
 
-Alternatively, run the backend directly:
-
-```powershell
-.\start-backend.ps1
+The plane starts stationary. To actually change the telemetry (airspeed, altitude, load), fly it manually in the SITL console:
+```
+mode manual
+arm throttle
+rc 3 2000      # full throttle, plane accelerates
+rc 2 1300      # nose up, starts climbing once airspeed builds
+rc 2 1500      # level off
 ```
 
-Dashboard, in a second terminal:
+---
 
-```powershell
-.\start-dashboard.ps1
-```
+## File reference
 
-Open `http://127.0.0.1:4173` for the landing page, or `http://127.0.0.1:4173/dashboard` to go straight to the console.
+| File | What it is |
+|---|---|
+| `engine_physics_model.py` | The offline physics simulator — generates the dataset from SITL logs |
+| `merge_mission_profile.py` | Aligns multi-file SITL logs into a single clean timeline |
+| `combine_datasets.py` | Merges healthy and fault-condition runs into one labeled CSV |
+| `engine_master_dataset.csv` | The full training/test dataset |
+| `train_model.py` | Trains all three XGBoost models and saves them |
+| `model_fault_classifier.joblib` | Trained fault classifier |
+| `model_severity_regressor.joblib` | Trained severity estimator |
+| `model_rul_regressor.joblib` | Trained remaining-life estimator |
+| `model_report.json` | Full evaluation metrics from training |
+| `confusion_matrix.png` | Classifier performance across all four classes |
+| `feature_importance.png` | SHAP-based feature importance across the dataset |
+| `live_engine.py` | Stream-friendly rewrite of the physics model for real-time use |
+| `app.py` | Replay backend |
+| `app_live.py` | Live SITL backend |
+| `static/index.html` | Dashboard — shared by both backends |
+| `frontend/src/lib/missionAnalytics.js` | Efficiency trends, maintenance advisory and mission-report logic (Section F) |
+| `frontend/src/components/SectionF.jsx` | React panels for trends, advisory and mission reports |
+| `scripts/sync_dashboard_analytics.py` | Copies the analytics module into `static/index.html` |
+| `MODEL_REPORT.md` | Detailed model documentation including calibration notes |
+| `PROJECT_DOCUMENTATION.md` | Full project write-up in plain language |
 
-## Rebuild the physics-informed dataset
+---
 
-```powershell
-.\.venv\Scripts\python.exe -m ml.generate_dataset
-```
+## Limitations
 
-This produces 360 runs and 86,856 samples across 12 development profiles, three ambient offsets, five health/fault scenarios, three degradation rates, and two independent noise seeds. Three additional profiles remain held out for the final demonstration.
+We have one flight per fault condition in the dataset. Within a flight, the models generalize well. Whether they'd hold up across independent flights with different mission profiles, different initial engine temperatures, or different onset rates is an open question we haven't tested.
 
-## Train and evaluate models
+The severity and RUL models sit at R² ≈ 0.59. That's meaningful predictive signal but it's not a precise instrument. The fault classifier tells you *what* is wrong with high confidence. The severity and RUL outputs are better understood as rough urgency signals than precise measurements.
 
-```powershell
-.\.venv\Scripts\python.exe -m ml.train_models
-```
+The classifier has no out-of-distribution fallback. If the engine develops a fault type it's never seen — something outside the four trained classes — it will still return one of those four labels with some confidence score. It cannot say "I don't know what this is."
 
-Outputs:
+The live mode is genuinely dependent on a working SITL connection on the expected port. If SITL isn't running, the dashboard shows a disconnected state rather than fabricating data, which is the right behavior but does mean the live demo has a hard external requirement.
 
-- `ml/models/model_bundle.joblib`
-- `ml/models/fault_classifier.ubj`
-- `ml/models/model_manifest.json`
-- `ml/models/metrics.json`
+---
 
-The manifest records the feature count, ordered labels, library versions, profile split, row count, and dataset SHA-256. The XGBoost classifier uses a portable UBJ artifact rather than a pickled estimator.
+## Stack
 
-Render the checked-in confusion matrix and compact evaluation report:
-
-```powershell
-.\.venv\Scripts\python.exe -m ml.render_evaluation_report
-```
-
-See [PROTOTYPE_STATUS.md](PROTOTYPE_STATUS.md) for current simulation-based results and limitations.
-
-For a detailed account of what was adopted from the team's Isha branch,
-what remained from AegisTwin, why each decision was made, and what still
-needs future work, see [ISHA-REPO-INTEGRATION-REPORT.md](ISHA-REPO-INTEGRATION-REPORT.md).
-
-## Test the dependency-free core
-
-```powershell
-C:\Users\rishu\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe -m unittest discover -s tests -v
-```
-
-## API
-
-- `GET /api/health`
-- `GET /api/scenarios`
-- `POST /api/scenario`
-- `POST /api/operator-response`
-- `GET /api/telemetry/latest`
-- `WS /ws/telemetry`
-- Interactive schema: `http://127.0.0.1:8000/docs`
-
-`GET /api/health` also reports the requested source, active source, MAVLink
-socket state, last-message age, and whether replay fallback is active.
-
-Example scenario command:
-
-```json
-{
-  "fault": "LUBRICATION_DEGRADATION",
-  "degradation_rate": "medium",
-  "enabled": true
-}
-```
-
-Operator responses are advisory acknowledgements only; they never send an autonomous command to ArduPilot:
-
-```json
-{
-  "response": "CONFIRMED"
-}
-```
-
-## Honest prototype boundary
-
-- Engine telemetry and RUL labels are simulation-defined.
-- Mission recommendations are advisory and are not flight-certified.
-- Real deployment requires dynamometer calibration and operational fleet data.
-- ArduPilot SITL flight state is accepted over MAVLink; engine channels remain
-  physics-generated because standard ArduPlane SITL does not emulate this MALE
-  piston engine's ECU sensors.
-
-See [SIH26054-roadmap-v2-merged.md](SIH26054-roadmap-v2-merged.md) for the complete four-day plan.
+Python, XGBoost, FastAPI, ArduPilot SITL, MAVLink (pymavlink), SHAP, scikit-learn, pandas

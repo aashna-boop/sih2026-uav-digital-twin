@@ -1,2 +1,0 @@
-"""Flight telemetry source adapters."""
-

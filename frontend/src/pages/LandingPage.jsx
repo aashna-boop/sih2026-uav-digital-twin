@@ -1,11 +1,7 @@
-import { useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import Lenis from "lenis";
-
-import SplineStage from "../components/SplineStage";
-
-const HERO_SCENE = "https://prod.spline.design/Fly2U42MyCT5xIl3/scene.splinecode";
-const APPROACH_SCENE = "https://prod.spline.design/OsYJjzm2rn3ndXo7/scene.splinecode";
+import { useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import Spline from '@splinetool/react-spline';
+import Lenis from 'lenis';
 
 export default function LandingPage() {
   const navigate = useNavigate();
@@ -14,8 +10,8 @@ export default function LandingPage() {
     const lenis = new Lenis({
       duration: 1.2,
       easing: (t) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-      direction: "vertical",
-      gestureDirection: "vertical",
+      direction: 'vertical',
+      gestureDirection: 'vertical',
       smooth: true,
       mouseMultiplier: 1,
       smoothTouch: false,
@@ -23,49 +19,36 @@ export default function LandingPage() {
       infinite: false,
     });
 
-    let frame;
-    const raf = (time) => {
+    function raf(time) {
       lenis.raf(time);
-      frame = requestAnimationFrame(raf);
-    };
-    frame = requestAnimationFrame(raf);
+      requestAnimationFrame(raf);
+    }
+
+    requestAnimationFrame(raf);
 
     return () => {
-      cancelAnimationFrame(frame);
       lenis.destroy();
     };
   }, []);
 
   return (
     <div className="landing-container">
-      <div className="landing-chrome">
-        <span className="landing-brand">
-          <span className="brand-mark">AT</span>
-          AegisTwin · SIH26054
-        </span>
-        <Link className="landing-skip" to="/dashboard">
-          Skip to console →
-        </Link>
-      </div>
-
       <section className="landing-section">
-        <SplineStage scene={HERO_SCENE} />
+        <Spline scene="https://prod.spline.design/Fly2U42MyCT5xIl3/scene.splinecode" />
         <div className="scroll-indicator">
-          <span>Scroll down</span>
+          <span>Scroll Down</span>
           <div className="arrow">↓</div>
         </div>
       </section>
-
-      <section className="landing-section">
-        <SplineStage scene={APPROACH_SCENE} interactive={false} />
-        <button
-          type="button"
-          className="scroll-indicator actionable"
-          onClick={() => navigate("/dashboard")}
-        >
-          <span>Proceed to dashboard</span>
+      
+      <section className="landing-section" style={{ position: 'relative' }}>
+        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+          <Spline scene="https://prod.spline.design/OsYJjzm2rn3ndXo7/scene.splinecode" />
+        </div>
+        <div className="scroll-indicator" style={{ cursor: 'pointer', pointerEvents: 'auto', bottom: '40px' }} onClick={() => navigate('/dashboard')}>
+          <span>Proceed to Dashboard</span>
           <div className="arrow">→</div>
-        </button>
+        </div>
       </section>
     </div>
   );

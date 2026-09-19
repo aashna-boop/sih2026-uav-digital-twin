@@ -1,41 +1,37 @@
-import { Link } from "react-router-dom";
+import { useMemo } from 'react';
 
-import { fmt, formatClock, humanize } from "../lib/telemetry";
+export default function Header({ connected, tSec, altitude }) {
+  const timeStr = useMemo(() => {
+    if (tSec == null) return '00:00';
+    const mm = String(Math.floor(tSec / 60)).padStart(2, '0');
+    const ss = String(Math.floor(tSec % 60)).padStart(2, '0');
+    return `${mm}:${ss}`;
+  }, [tSec]);
 
-export default function Header({ connected, source, flight }) {
+  const altStr = altitude != null ? `${Math.round(altitude)} m` : '--';
+
   return (
     <header className="app-header">
       <div className="header-brand">
-        <span className="brand-mark">AT</span>
-        <div>
-          <h1>AegisTwin</h1>
-          <p>SIH26054 · UAV piston-engine mission reliability console</p>
-        </div>
+        <h1>UAV Piston Engine Digital Twin</h1>
+        <p>Live predictions from the trained XGBoost model — real dataset rows, real inference, real SHAP</p>
       </div>
-
       <div className="header-meta">
         <div className="meta-item">
           <span className="meta-label">Connection</span>
-          <span className={`conn-badge ${connected ? "live" : "down"}`}>
+          <span className={`conn-badge ${connected ? 'live' : 'down'}`}>
             <span className="pulse-dot" />
-            {connected ? "Live · 5 Hz" : "Reconnecting"}
+            {connected ? 'Live' : 'Connecting'}
           </span>
         </div>
         <div className="meta-item">
-          <span className="meta-label">Source</span>
-          <span className="meta-value small">{humanize(source)}</span>
-        </div>
-        <div className="meta-item">
           <span className="meta-label">Flight time</span>
-          <span className="meta-value">{formatClock(flight?.t_sec)}</span>
+          <span className="meta-value">{timeStr}</span>
         </div>
         <div className="meta-item">
           <span className="meta-label">Altitude</span>
-          <span className="meta-value">{fmt(flight?.altitude_m, 0)} m</span>
+          <span className="meta-value">{altStr}</span>
         </div>
-        <Link className="header-link" to="/">
-          Landing
-        </Link>
       </div>
     </header>
   );
