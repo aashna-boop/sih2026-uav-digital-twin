@@ -8,6 +8,8 @@ import DiagnosisPanel, { SEV_MONITOR, SEV_CRITICAL, FAULT_LABELS } from '../comp
 import SafetyBanner from '../components/SafetyBanner';
 import LogList from '../components/LogList';
 import FaultControls from '../components/FaultControls';
+import SectionF, { useMissionReports } from '../components/SectionF';
+import { ADVISORIES, LEVEL_TEXT } from '../lib/missionAnalytics';
 
 // The backend WebSocket URL — same host in production, explicit for dev
 const WS_URL = `ws://${window.location.hostname}:8000/ws`;
@@ -26,6 +28,8 @@ export default function Dashboard() {
   const [responseState, setResponseState] = useState('none'); // 'none' | 'confirmed' | 'dismissed'
 
   const wsRef = useRef(null);
+  const reports = useMissionReports();
+  const { onData: recordSample, newRun, logEvent } = reports;
 
   const addLog = useCallback((msg, cls, tsec = 0) => {
     const time = formatTime(tsec);
@@ -66,6 +70,11 @@ export default function Dashboard() {
         if (!isMounted) return;
         const d = JSON.parse(ev.data);
         setData(d);
+        const adv = recordSample(d);
+        if (adv) {
+          addLog(`Maintenance advisory: ${ADVISORIES[adv.fault]?.system || adv.fault} — ${LEVEL_TEXT[adv.level]}`,
+            adv.level === 'critical' ? 'crit' : 'warn', d.t_sec);
+        }
       };
     }
 
@@ -76,7 +85,7 @@ export default function Dashboard() {
       clearTimeout(reconnectTimer);
       if (ws) ws.close();
     };
-  }, [addLog]);
+  }, [addLog, recordSample]);
 
   // ---- Actions sent to backend ----
   const send = useCallback((payload) => {
@@ -90,27 +99,31 @@ export default function Dashboard() {
     setActiveFault(fault);
     setResponseState('none');
     send({ action: 'inject_fault', fault });
+    newRun(fault);
     addLog(`Now streaming: ${FAULT_LABELS[fault] || fault} run`, 'warn', 0);
-  }, [send, addLog]);
+  }, [send, addLog, newRun]);
 
   const handleClearFault = useCallback(() => {
     setActiveFault('healthy');
     setResponseState('none');
     send({ action: 'clear_fault' });
+    newRun('healthy');
     addLog('Now streaming: healthy run', 'ok', 0);
-  }, [send, addLog]);
+  }, [send, addLog, newRun]);
 
   const handleConfirm = useCallback(() => {
     setResponseState('confirmed');
     send({ action: 'confirm_action' });
+    logEvent('Operator confirmed recommended action');
     addLog('Operator confirmed emergency action', 'crit', data?.t_sec || 0);
-  }, [send, addLog, data]);
+  }, [send, addLog, data, logEvent]);
 
   const handleDismiss = useCallback(() => {
     setResponseState('dismissed');
     send({ action: 'dismiss_action' });
+    logEvent('Operator dismissed recommendation');
     addLog('Operator dismissed safety recommendation', '', data?.t_sec || 0);
-  }, [send, addLog, data]);
+  }, [send, addLog, data, logEvent]);
 
   // Should the safety banner show?
   const prediction = data?.prediction;
@@ -172,6 +185,9 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Section F — efficiency trends, maintenance advisory, mission reports */}
+      <SectionF reports={reports} />
 
       {/* Safety banner — overlays bottom */}
       {showBanner && (
