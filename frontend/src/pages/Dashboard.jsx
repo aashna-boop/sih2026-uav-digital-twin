@@ -11,6 +11,9 @@ import FaultControls from '../components/FaultControls';
 import SectionF, { useMissionReports } from '../components/SectionF';
 import { ADVISORIES, LEVEL_TEXT } from '../lib/missionAnalytics';
 
+import ScenarioSelector from '../components/ScenarioSelector';
+import BatteryPanel from '../components/BatteryPanel';
+
 // The backend WebSocket URL — same host in production, explicit for dev
 const WS_URL = `ws://${window.location.hostname}:8000/ws`;
 
@@ -25,6 +28,7 @@ export default function Dashboard() {
   const [data, setData] = useState(null);
   const [logs, setLogs] = useState([]);
   const [activeFault, setActiveFault] = useState('healthy');
+  const [activeScenario, setActiveScenario] = useState('dataset');
   const [responseState, setResponseState] = useState('none'); // 'none' | 'confirmed' | 'dismissed'
 
   const wsRef = useRef(null);
@@ -111,6 +115,15 @@ export default function Dashboard() {
     addLog('Now streaming: healthy run', 'ok', 0);
   }, [send, addLog, newRun]);
 
+  const handleSelectScenario = useCallback((scenarioId) => {
+    setActiveScenario(scenarioId);
+    setActiveFault('healthy');
+    setResponseState('none');
+    send({ action: 'select_scenario', scenario: scenarioId });
+    newRun(scenarioId);
+    addLog(`Switched environmental scenario: ${scenarioId}`, 'ok', 0);
+  }, [send, addLog, newRun]);
+
   const handleConfirm = useCallback(() => {
     setResponseState('confirmed');
     send({ action: 'confirm_action' });
@@ -143,11 +156,25 @@ export default function Dashboard() {
         altitude={data?.altitude}
       />
 
+      <div className="glass-panel" style={{ margin: '0 var(--space-lg) var(--space-md) var(--space-lg)' }}>
+        <p className="panel-title">Environmental Scenarios (Digital Twin Simulation)</p>
+        <ScenarioSelector
+          activeScenario={activeScenario}
+          onSelectScenario={handleSelectScenario}
+        />
+      </div>
+
       <div className="main-grid">
-        {/* Left column — sensor telemetry */}
-        <div className="glass-panel">
-          <p className="panel-title">Live telemetry — actual vs expected</p>
-          <SensorList sensors={data?.sensors} expected={data?.expected} />
+        {/* Left column — sensor telemetry + battery */}
+        <div className="left-column" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-md)' }}>
+          <div className="glass-panel">
+            <p className="panel-title">Live telemetry — actual vs expected</p>
+            <SensorList sensors={data?.sensors} expected={data?.expected} />
+          </div>
+
+          <div className="glass-panel">
+            <BatteryPanel battery={data?.battery} />
+          </div>
         </div>
 
         {/* Center column — flight profile + logs */}
