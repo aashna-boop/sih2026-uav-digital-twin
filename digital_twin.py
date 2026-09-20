@@ -28,8 +28,18 @@ slopes/intercepts unchanged and add a mild, physically-motivated ambient-
 temperature term to the three thermal channels (hotter ambient air impairs
 convective cooling; colder ambient improves it) since the original seed
 flight had constant ambient and could not inform that term on its own.
+
+Section E additions (altitude & battery):
+- ISA standard-atmosphere density ratio corrects engine output for altitude.
+  Naturally-aspirated piston engines lose power roughly as σ (air-density
+  ratio) decreases, affecting RPM, temperatures, fuel flow and oil pressure.
+- Battery/alternator baseline: a simple voltage-curve + Coulomb-counting
+  model produces healthy reference values for onboard electrical health
+  monitoring (voltage, current, state-of-charge).
 """
 from __future__ import annotations
+
+import math
 
 SENSORS = ("rpm", "egt_c", "cht_c", "oil_temp_c", "oil_pressure_bar", "fuel_flow_lph", "vibration")
 
@@ -82,30 +92,125 @@ LAG_TAU = {
 # thermal channels, and only mildly -- cooling effectiveness depends on
 # ambient air temperature, but rpm/oil-pressure/fuel-flow governance in a
 # piston aero engine is set by mixture/throttle, not ambient air temp.
+# oil_temp_c raised from 0.35 to 0.45 so hot-day demos show a more visible
+# temperature effect. Vibration gets a small ambient sensitivity (hotter
+# lubricant → thinner film → slightly more mechanical contact noise).
 _AMBIENT_COEF = {
     "egt_c": 0.30,
     "cht_c": 0.50,
-    "oil_temp_c": 0.35,
+    "oil_temp_c": 0.45,
+    "vibration": 0.008,
 }
 
 
-def expected_sensors(load: float, ambient_offset_c: float = 0.0) -> dict:
+# ─── Altitude / density-altitude model ────────────────────────────────────
+# ISA troposphere model (valid to ~11 km / FL360, well above UAV ops):
+#   T(h) = T₀ − L·h ,   σ(h) = (T(h)/T₀)^(g/(R·L) − 1)
+# where T₀=288.15 K, L=0.0065 K/m, g=9.80665, R=287.05.
+# The exponent g/(R·L)−1 ≈ 4.2559.
+
+_ISA_T0 = 288.15           # sea-level standard temperature (K)
+_ISA_LAPSE = 0.0065         # temperature lapse rate (K/m)
+_ISA_EXPONENT = 4.2559      # (g / (R * L)) - 1
+
+
+def density_ratio(altitude_m: float) -> float:
+    """Air-density ratio σ = ρ(h)/ρ₀ via ISA standard atmosphere.
+
+    Returns 1.0 at sea level, ~0.74 at 3000 m, ~0.69 at 3500 m.
+    Clamped to [0, 11000] m (troposphere).
+    """
+    h = max(0.0, min(altitude_m, 11000.0))
+    return max(0.1, (1.0 - _ISA_LAPSE * h / _ISA_T0) ** _ISA_EXPONENT)
+
+
+# Per-sensor altitude scaling. For a naturally-aspirated piston engine:
+#   RPM  — power (and therefore governed RPM) falls roughly as σ^0.5
+#   EGT  — less fuel burned at altitude → lower exhaust temperature; scales ~σ^0.3
+#   CHT  — less heat generated but also less cooling air → mild net decrease ~σ^0.15
+#   oil_temp — less heat input, reduced cooling → near-neutral, slight decrease ~σ^0.10
+#   oil_pressure — oil pump is engine-driven; lower RPM → lower pressure ~σ^0.25
+#   fuel_flow — properly leaned at altitude; mixture follows air density ~σ^0.7
+#   vibration — minimal altitude effect
+_ALT_POWER = {
+    "rpm": 0.50,
+    "egt_c": 0.30,
+    "cht_c": 0.15,
+    "oil_temp_c": 0.10,
+    "oil_pressure_bar": 0.25,
+    "fuel_flow_lph": 0.70,
+    "vibration": 0.0,
+}
+
+
+# ─── Battery / alternator baseline model ──────────────────────────────────
+# Simple healthy-alternator electrical system:
+#   voltage  — alternator regulator holds ~12.6 V under load (±0.4 V with load)
+#   current  — proportional to electrical load (avionics + servos), roughly
+#              tracks engine load as a proxy for mission intensity
+#   SOC      — starts at 100%, Coulomb-counting drain; alternator recharges
+#              continuously so healthy SOC stays >90% in normal ops
+BATTERY_NOMINAL_V = 12.6
+BATTERY_FULL_CHARGE_AH = 5.0      # 5 Ah LiPo/NiMH typical for UAV aux battery
+BATTERY_BASELINE_DRAW_A = 1.2     # avionics quiescent draw
+BATTERY_LOAD_DRAW_A = 2.5         # extra draw proportional to engine load
+BATTERY_ALTERNATOR_CHARGE_A = 4.0 # healthy alternator output
+
+
+def expected_battery(load: float, soc_pct: float = 100.0,
+                     alternator_healthy: bool = True) -> dict:
+    """Healthy-twin expected battery/alternator readings.
+
+    Returns dict with battery_voltage_v, battery_current_a, battery_soc_pct.
+    """
+    draw = BATTERY_BASELINE_DRAW_A + BATTERY_LOAD_DRAW_A * max(0.0, load)
+    charge = BATTERY_ALTERNATOR_CHARGE_A if alternator_healthy else 0.0
+    net_current = draw - charge  # positive = discharging
+
+    # Voltage: simple linear model — drops under load, rises with SOC
+    soc_factor = max(0.0, min(1.0, soc_pct / 100.0))
+    v = BATTERY_NOMINAL_V - 0.3 * (1.0 - soc_factor) - 0.05 * draw
+    if not alternator_healthy:
+        v -= 0.8  # noticeable droop without alternator
+    v = max(9.0, min(14.5, v))
+
+    return {
+        "battery_voltage_v": v,
+        "battery_current_a": draw,
+        "battery_soc_pct": max(0.0, min(100.0, soc_pct)),
+    }
+
+
+def expected_sensors(load: float, ambient_offset_c: float = 0.0,
+                     altitude_m: float = 0.0) -> dict:
     """Healthy-twin expected reading for every sensor at this operating point.
 
     `load` is the normalized throttle/power setting in ~[0.35, 1.0], matching
     the `load` column already in the dataset. `ambient_offset_c` is degrees C
-    away from a 25 C reference day.
+    away from a 25 C reference day. `altitude_m` is altitude in meters above
+    sea level (0 = sea level, default, preserves backward compatibility).
     """
     load = max(0.0, min(1.2, load))
+    sigma = density_ratio(altitude_m)
     out = {}
     for s in SENSORS:
         val = _LOAD_INTERCEPT[s] + _LOAD_SLOPE[s] * load
         val += _AMBIENT_COEF.get(s, 0.0) * ambient_offset_c
+        # Altitude correction: scale the load-dependent portion by σ^power
+        # The intercept (idle/baseline) is less affected, so we scale the
+        # deviation from intercept.
+        power = _ALT_POWER.get(s, 0.0)
+        if power > 0.0 and altitude_m > 10.0:
+            load_portion = _LOAD_SLOPE[s] * load
+            alt_factor = sigma ** power
+            # Replace the load portion with its altitude-scaled version
+            val = _LOAD_INTERCEPT[s] + load_portion * alt_factor
+            val += _AMBIENT_COEF.get(s, 0.0) * ambient_offset_c
         out[s] = val
     return out
 
 
-def reference_trajectory(t_sec, load, ambient_offset_c):
+def reference_trajectory(t_sec, load, ambient_offset_c, altitude_m=None):
     """Lagged healthy-twin trajectory for one run, sorted by t_sec.
 
     A purely *static* (instantaneous) reference would flag every throttle
@@ -117,17 +222,22 @@ def reference_trajectory(t_sec, load, ambient_offset_c):
     the reference model's own output before it is compared against the
     actual reading. Takes/returns plain sequences (t_sec, load,
     ambient_offset_c all same length, already sorted ascending by t_sec).
+
+    `altitude_m` is an optional same-length sequence of altitude values.
+    If None, sea-level (0 m) is assumed for backward compatibility.
     """
     n = len(t_sec)
     out = {s: [0.0] * n for s in SENSORS}
     if n == 0:
         return out
-    first = expected_sensors(load[0], ambient_offset_c[0])
+    alt0 = altitude_m[0] if altitude_m is not None else 0.0
+    first = expected_sensors(load[0], ambient_offset_c[0], alt0)
     for s in SENSORS:
         out[s][0] = first[s]
     for i in range(1, n):
         dt = max(t_sec[i] - t_sec[i - 1], 1e-6)
-        tgt = expected_sensors(load[i], ambient_offset_c[i])
+        alt_i = altitude_m[i] if altitude_m is not None else 0.0
+        tgt = expected_sensors(load[i], ambient_offset_c[i], alt_i)
         for s in SENSORS:
             prev = out[s][i - 1]
             tau = max(LAG_TAU[s], dt)

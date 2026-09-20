@@ -763,3 +763,180 @@ body::before {
   box-shadow: 0 6px 28px rgba(220, 95, 0, 0.6);
 }
 
+/* ============================================================
+   Section E: Scenario Selector & Battery Panel CSS
+   ============================================================ */
+
+/* Scenario Selector */
+.scenario-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-xs);
+  margin-top: var(--space-xs);
+}
+
+.scenario-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: var(--space-xs) var(--space-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: all var(--duration-fast) var(--ease-out);
+}
+
+.scenario-btn:hover {
+  border-color: var(--border-default);
+  background: var(--bg-elevated);
+}
+
+.scenario-btn.active {
+  border-color: var(--accent-teal);
+  background: var(--accent-teal-dim);
+  box-shadow: 0 0 12px var(--accent-teal-glow);
+}
+
+.scenario-name {
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-primary);
+}
+
+.scenario-btn.active .scenario-name {
+  color: var(--accent-teal);
+}
+
+.scenario-desc {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+/* Battery Panel */
+.battery-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.battery-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.battery-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.battery-icon {
+  color: var(--accent-teal);
+}
+
+.battery-status {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.battery-status.ok {
+  background: var(--accent-teal-dim);
+  color: var(--accent-teal);
+  border: 1px solid var(--accent-teal-glow);
+}
+
+.battery-status.warn {
+  background: var(--accent-amber-dim);
+  color: var(--accent-amber);
+  border: 1px solid var(--accent-amber-glow);
+}
+
+.battery-status.crit {
+  background: var(--accent-red-dim);
+  color: var(--accent-red);
+  border: 1px solid var(--accent-red-glow);
+}
+
+.soc-gauge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin: 4px 0;
+}
+
+.soc-bar-bg {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-elevated);
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+.soc-bar-fill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width var(--duration-normal) var(--ease-out);
+}
+
+.soc-bar-fill.ok {
+  background: linear-gradient(90deg, #00E5FF, #00B0FF);
+}
+
+.soc-bar-fill.warn {
+  background: linear-gradient(90deg, #B026FF, #E040FB);
+}
+
+.soc-bar-fill.crit {
+  background: linear-gradient(90deg, #FF003C, #FF5252);
+}
+
+.soc-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-primary);
+  min-width: 45px;
+  text-align: right;
+}
+
+.battery-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-xs);
+}
+
+.stat-box {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-sm);
+}
+
+.stat-label {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.stat-value {
+  font-family: var(--font-mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.stat-value .unit {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+

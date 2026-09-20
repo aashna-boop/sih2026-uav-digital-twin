@@ -8,6 +8,14 @@ fed by real (or SITL-simulated) telemetry. No hand-coded fault logic here —
 every prediction, probability, and SHAP attribution comes from the trained
 model.
 
+Section E additions:
+- Environmental scenario runs: 4 pre-generated healthy flights under
+  different environmental conditions (high altitude, hot weather, rapid
+  throttle transitions, endurance), showing how the digital twin's expected
+  values adapt to each environment.
+- Battery/alternator data included in the broadcast payload.
+- 'select_scenario' WebSocket action to switch between scenario runs.
+
 Run with:  uvicorn app:app --reload
 Then open: http://localhost:8000
 """
@@ -85,7 +93,9 @@ def pick_run_id(fault_key):
 
 def build_run(run_id):
     g = raw[raw.run_id == run_id].sort_values("t_sec").reset_index(drop=True).copy()
-    ref = reference_trajectory(g["t_sec"].tolist(), g["load"].tolist(), g["ambient_offset_c"].tolist())
+    alt_col = g["altitude_m"].tolist() if "altitude_m" in g.columns else None
+    ref = reference_trajectory(g["t_sec"].tolist(), g["load"].tolist(),
+                               g["ambient_offset_c"].tolist(), alt_col)
     for s in SENSORS:
         g[f"{s}_expected"] = ref[s]
         g[f"{s}_resid"] = g[s] - g[f"{s}_expected"]
@@ -97,12 +107,81 @@ RUNS = {key: build_run(pick_run_id(key)) for key in FAULT_KEYS}   # fault_key ->
 for key, run in RUNS.items():
     print(f"[app] replay run for {key!r}: {run.run_id.iloc[0]} ({len(run)} rows)")
 
+# ---------- Section E: Pre-generate scenario runs ----------
+from engine_physics_model import (
+    generate_run as gen_run, SCENARIO_DEFAULTS, ARCHETYPES,
+)
+
+SCENARIO_KEYS = ["high_altitude_cruise", "hot_weather_ops",
+                 "rapid_throttle_transition", "endurance_mission"]
+
+SCENARIO_META = {
+    "high_altitude_cruise": {
+        "label": "High-Altitude Cruise",
+        "icon": "🏔️",
+        "description": "Climb to 3000 m, cruise at altitude, descent. Cooler ambient, reduced air density.",
+        "cruise_alt_m": 3000,
+    },
+    "hot_weather_ops": {
+        "label": "Hot-Weather Ops",
+        "icon": "🌡️",
+        "description": "Moderate altitude, 55°C ambient day. Stress-tests thermal channels.",
+        "cruise_alt_m": 0,
+    },
+    "rapid_throttle_transition": {
+        "label": "Rapid Throttle Transition",
+        "icon": "⚡",
+        "description": "Aggressive maneuvers with sharp load swings (0.35↔0.95). Tests transient response.",
+        "cruise_alt_m": 0,
+    },
+    "endurance_mission": {
+        "label": "Endurance Mission",
+        "icon": "🔋",
+        "description": "Extended 20-30 min flight at moderate cruise. Tests sustained thermal soak.",
+        "cruise_alt_m": 500,
+    },
+}
+
+
+def build_scenario_run(scenario_key):
+    """Generate a healthy run under scenario-specific environmental conditions."""
+    defaults = SCENARIO_DEFAULTS.get(scenario_key, {})
+    ambient = defaults.get("ambient_offset_c", 0.0)
+    rows = gen_run(
+        fault_type="healthy",
+        severity=0.0,
+        onset_frac=1.0,
+        ambient_offset_c=ambient,
+        seed=hash(scenario_key) % 100000,
+        run_id=f"scenario_{scenario_key}",
+        archetype=scenario_key,
+    )
+    # Convert to DataFrame and build residual features
+    df = pd.DataFrame(rows)
+    alt_col = df["altitude_m"].tolist() if "altitude_m" in df.columns else None
+    ref = reference_trajectory(df["t_sec"].tolist(), df["load"].tolist(),
+                               df["ambient_offset_c"].tolist(), alt_col)
+    for s in SENSORS:
+        df[f"{s}_expected"] = ref[s]
+        df[f"{s}_resid"] = df[s] - df[f"{s}_expected"]
+        df[f"{s}_resid_smooth"] = df[f"{s}_resid"].rolling(
+            SMOOTH_WINDOW_SAMPLES, min_periods=WARMUP_DROP).mean()
+    return df.iloc[WARMUP_DROP:].reset_index(drop=True)
+
+
+SCENARIO_RUNS = {}
+for sk in SCENARIO_KEYS:
+    SCENARIO_RUNS[sk] = build_scenario_run(sk)
+    print(f"[app] scenario run for {sk!r}: {len(SCENARIO_RUNS[sk])} rows")
+
+
 CLASS_LABELS = sorted(raw.fault_type.unique().tolist())
 
 # ---------- Simulation state (shared across connected clients) ----------
 state = {
     "idx": 0,
     "active_fault": "healthy",   # which dataset run is currently being streamed
+    "active_scenario": None,     # Section E: active environmental scenario (overrides active_fault)
     "speed": 8,                  # rows advanced per tick (data is 4Hz, tick is 0.4s -> 5x playback speed, a ~600s run in ~2min)
     "history": deque(maxlen=TREND_HISTORY_MAX),   # rolling {timestamp, severity, rul} for the current run
     "response_confirmed": False,
@@ -169,7 +248,14 @@ async def simulation_loop():
         if not connected:
             continue
 
-        run = RUNS[state["active_fault"]]
+        # Determine which run to replay: scenario overrides fault
+        if state["active_scenario"] and state["active_scenario"] in SCENARIO_RUNS:
+            run = SCENARIO_RUNS[state["active_scenario"]]
+            scenario_key = state["active_scenario"]
+        else:
+            run = RUNS[state["active_fault"]]
+            scenario_key = None
+
         run_len = len(run)
         if state["idx"] >= run_len:
             # Replay reached the end of the recorded run and loops: new session, fresh trend.
@@ -187,6 +273,12 @@ async def simulation_loop():
         else:
             alt = float(row["gps_alt"])
 
+        # Battery data (Section E): use columns if present, else defaults
+        batt_v = float(row["battery_voltage_v"]) if "battery_voltage_v" in row.index else 12.6
+        batt_a = float(row["battery_current_a"]) if "battery_current_a" in row.index else 1.5
+        batt_soc = float(row["battery_soc_pct"]) if "battery_soc_pct" in row.index else 100.0
+        altitude_m = float(row["altitude_m"]) if "altitude_m" in row.index else 0.0
+
         payload = {
             "t_sec": float(row["t_sec"]),
             "true_fault": row["fault_type"],
@@ -194,9 +286,17 @@ async def simulation_loop():
             "sensors": {s: float(row[s]) for s in SENSORS},
             "expected": {s: float(row[f"{s}_expected"]) for s in SENSORS},
             "altitude": alt,
+            "altitude_m": altitude_m,
             "prediction": pred,
             "history": list(state["history"]),
             "response_confirmed": state["response_confirmed"],
+            # Section E: battery health
+            "battery_voltage_v": batt_v,
+            "battery_current_a": batt_a,
+            "battery_soc_pct": batt_soc,
+            # Section E: scenario metadata
+            "scenario": scenario_key,
+            "scenario_meta": SCENARIO_META.get(scenario_key) if scenario_key else None,
         }
         await broadcast(connected, payload)
         state["idx"] += state["speed"]
@@ -212,16 +312,27 @@ async def ws_endpoint(websocket: WebSocket):
             action = data.get("action")
             if action == "inject_fault":
                 state["active_fault"] = data.get("fault", "healthy")
+                state["active_scenario"] = None
                 state["idx"] = 0
                 state["history"].clear()
                 state["response_confirmed"] = False
                 state["response_start_idx"] = None
             elif action == "clear_fault":
                 state["active_fault"] = "healthy"
+                state["active_scenario"] = None
                 state["idx"] = 0
                 state["history"].clear()
                 state["response_confirmed"] = False
                 state["response_start_idx"] = None
+            elif action == "select_scenario":
+                scenario = data.get("scenario")
+                if scenario in SCENARIO_RUNS:
+                    state["active_scenario"] = scenario
+                    state["active_fault"] = "healthy"
+                    state["idx"] = 0
+                    state["history"].clear()
+                    state["response_confirmed"] = False
+                    state["response_start_idx"] = None
             elif action == "confirm_action":
                 state["response_confirmed"] = True
                 state["response_start_idx"] = state["idx"]
@@ -235,3 +346,4 @@ async def ws_endpoint(websocket: WebSocket):
 async def index():
     with open("static/index.html") as f:
         return f.read()
+

@@ -24,6 +24,15 @@ adds what a static reference model does not have:
      (steep climb, full-power segment) with no fault injected at all, so a
      transient elevated reading is not, by itself, evidence of a fault.
 
+Section E additions:
+  6. Altitude-dependent engine physics: density-altitude corrections shift
+     sensor targets at altitude via digital_twin.density_ratio().
+  7. Four new flight archetypes for environmental scenario demos:
+     high_altitude_cruise, hot_weather_ops, rapid_throttle_transition,
+     endurance_mission.
+  8. Battery/alternator simulation: voltage, current, SOC per timestep with
+     Coulomb-counting and optional alternator-failure degradation.
+
 Fault magnitudes (at severity=1.0, i.e. fully progressed) are derived from
 the deltas actually observed in the original single-severity dataset,
 linearly extrapolated from their measured (onset_frac, severity) pair to a
@@ -37,7 +46,12 @@ import math
 import random
 from dataclasses import dataclass, field
 
-from digital_twin import expected_sensors, MEASURED_HEALTHY_NOISE_STD, SENSORS, LAG_TAU
+from digital_twin import (
+    expected_sensors, MEASURED_HEALTHY_NOISE_STD, SENSORS, LAG_TAU,
+    density_ratio, expected_battery,
+    BATTERY_FULL_CHARGE_AH, BATTERY_ALTERNATOR_CHARGE_A,
+    BATTERY_BASELINE_DRAW_A, BATTERY_LOAD_DRAW_A,
+)
 
 FAULT_TYPES = ("valve_wear", "cooling_failure", "oil_pressure_drop")
 
@@ -94,6 +108,8 @@ class ProfileSegment:
     load_hi: float
     airspeed_lo: float
     airspeed_hi: float
+    altitude_lo: float = 0.0   # meters AGL — Section E addition
+    altitude_hi: float = 0.0
 
 
 ARCHETYPES = {
@@ -131,6 +147,69 @@ ARCHETYPES = {
             ProfileSegment(0.85, 1.00, 0.40, 0.48, 10.0, 16.0),
         ],
     ),
+
+    # ──── Section E scenario archetypes ────────────────────────────────
+    "high_altitude_cruise": (
+        (600, 900),
+        [
+            # Climb from ground to 3000 m
+            ProfileSegment(0.00, 0.10, 0.34, 0.42, 0.0, 5.0, 0.0, 100.0),
+            ProfileSegment(0.10, 0.30, 0.70, 0.90, 8.0, 18.0, 100.0, 3000.0),
+            # Long cruise at 3000 m
+            ProfileSegment(0.30, 0.75, 0.55, 0.65, 20.0, 26.0, 3000.0, 3000.0),
+            # Descent back to ground
+            ProfileSegment(0.75, 0.90, 0.40, 0.50, 15.0, 22.0, 3000.0, 800.0),
+            ProfileSegment(0.90, 1.00, 0.34, 0.40, 5.0, 12.0, 800.0, 50.0),
+        ],
+    ),
+    "hot_weather_ops": (
+        (500, 700),
+        [
+            # Normal profile but ambient_offset is high (set externally);
+            # moderate-to-high load to stress thermal channels
+            ProfileSegment(0.00, 0.15, 0.34, 0.42, 0.0, 3.0),
+            ProfileSegment(0.15, 0.35, 0.55, 0.75, 10.0, 20.0),
+            ProfileSegment(0.35, 0.70, 0.60, 0.80, 18.0, 25.0),
+            ProfileSegment(0.70, 0.85, 0.65, 0.90, 16.0, 24.0),
+            ProfileSegment(0.85, 1.00, 0.40, 0.50, 8.0, 15.0),
+        ],
+    ),
+    "rapid_throttle_transition": (
+        (400, 600),
+        [
+            # Many short segments with abrupt load changes
+            ProfileSegment(0.00, 0.08, 0.34, 0.40, 0.0, 3.0),
+            ProfileSegment(0.08, 0.18, 0.85, 0.95, 15.0, 24.0),
+            ProfileSegment(0.18, 0.25, 0.35, 0.42, 5.0, 10.0),
+            ProfileSegment(0.25, 0.35, 0.80, 0.92, 18.0, 26.0),
+            ProfileSegment(0.35, 0.42, 0.38, 0.45, 8.0, 14.0),
+            ProfileSegment(0.42, 0.52, 0.88, 0.98, 20.0, 28.0),
+            ProfileSegment(0.52, 0.60, 0.40, 0.48, 10.0, 16.0),
+            ProfileSegment(0.60, 0.72, 0.82, 0.95, 17.0, 25.0),
+            ProfileSegment(0.72, 0.82, 0.35, 0.42, 6.0, 12.0),
+            ProfileSegment(0.82, 0.92, 0.75, 0.88, 14.0, 22.0),
+            ProfileSegment(0.92, 1.00, 0.34, 0.40, 3.0, 8.0),
+        ],
+    ),
+    "endurance_mission": (
+        (1200, 1800),
+        [
+            # Very long, low-to-moderate steady cruise
+            ProfileSegment(0.00, 0.08, 0.34, 0.40, 0.0, 3.0),
+            ProfileSegment(0.08, 0.15, 0.45, 0.55, 8.0, 16.0, 0.0, 500.0),
+            ProfileSegment(0.15, 0.85, 0.48, 0.55, 16.0, 22.0, 500.0, 500.0),
+            ProfileSegment(0.85, 0.95, 0.42, 0.48, 12.0, 18.0, 500.0, 100.0),
+            ProfileSegment(0.95, 1.00, 0.34, 0.40, 3.0, 8.0, 100.0, 0.0),
+        ],
+    ),
+}
+
+# Scenario-specific default settings (ambient_offset_c, altitude base offset)
+SCENARIO_DEFAULTS = {
+    "high_altitude_cruise": {"ambient_offset_c": -5.0},   # cooler at altitude
+    "hot_weather_ops":      {"ambient_offset_c": 30.0},    # 55°C day
+    "rapid_throttle_transition": {"ambient_offset_c": 5.0},
+    "endurance_mission":    {"ambient_offset_c": 0.0},
 }
 
 
@@ -141,9 +220,10 @@ def _segment_at(segments, frac, rng):
             local = (frac - seg.frac_start) / span
             load = seg.load_lo + (seg.load_hi - seg.load_lo) * local
             airspeed = seg.airspeed_lo + (seg.airspeed_hi - seg.airspeed_lo) * local
-            return load, airspeed
+            altitude = seg.altitude_lo + (seg.altitude_hi - seg.altitude_lo) * local
+            return load, airspeed, altitude
     seg = segments[-1]
-    return seg.load_hi, seg.airspeed_hi
+    return seg.load_hi, seg.airspeed_hi, seg.altitude_hi
 
 
 def generate_run(
@@ -157,6 +237,7 @@ def generate_run(
     duration_sec: float | None = None,
     near_miss: bool = False,
     near_miss_boost: float = 0.0,
+    alternator_failure_frac: float | None = None,
 ):
     """Generate one run's telemetry rows as a list of dicts.
 
@@ -167,6 +248,8 @@ def generate_run(
     near_miss: if True (only meaningful for fault_type == "healthy"), adds a
         genuine high-load/hot excursion with no fault label, so a transient
         elevated reading doesn't by itself imply a fault.
+    alternator_failure_frac: if set, the alternator fails at this fraction
+        of the flight, causing battery SOC to drain (Section E).
     """
     assert fault_type == "healthy" or fault_type in FAULT_TYPES
     rng = random.Random(seed)
@@ -185,7 +268,12 @@ def generate_run(
     load_walk = 0.0
     airspeed_walk = 0.0
 
-    lagged = dict(expected_sensors(segments[0].load_lo, ambient_offset_c))
+    lagged = dict(expected_sensors(segments[0].load_lo, ambient_offset_c,
+                                   segments[0].altitude_lo))
+
+    # Battery state — Coulomb counting
+    battery_soc_pct = 100.0
+    battery_soc_ah = BATTERY_FULL_CHARGE_AH
 
     rows = []
     near_miss_center = rng.uniform(0.3, 0.7)
@@ -202,9 +290,10 @@ def generate_run(
         load_walk += (rng.uniform(-1, 1) * 0.004 - load_walk / load_lag_tau * DT)
         airspeed_walk += (rng.uniform(-1, 1) * 0.06 - airspeed_walk / air_lag_tau * DT)
 
-        base_load, base_airspeed = _segment_at(segments, frac, rng)
+        base_load, base_airspeed, base_altitude = _segment_at(segments, frac, rng)
         load = max(0.30, base_load + load_walk)
         airspeed = max(0.0, base_airspeed + airspeed_walk)
+        altitude_m = max(0.0, base_altitude)
 
         if near_miss and abs(frac - near_miss_center) < near_miss_width:
             load = min(1.15, load + near_miss_amt)
@@ -218,7 +307,7 @@ def generate_run(
         else:
             s_t = 0.0
 
-        target = expected_sensors(load, ambient_offset_c)
+        target = expected_sensors(load, ambient_offset_c, altitude_m)
 
         if fault_type != "healthy" and s_t > 0:
             for chan, delta_at_1 in FAULT_MODEL[fault_type].items():
@@ -242,9 +331,26 @@ def generate_run(
         yaw = (60.0 * frac + rng.gauss(0, 4)) % 360
         gps_speed = airspeed * (0.95 + 0.1 * rng.random())
         gps_course = yaw
-        baro_alt = max(0.0, 500.0 * min(1.0, frac * 3) + rng.gauss(0, 1.5))
+        baro_alt = max(0.0, altitude_m + rng.gauss(0, 1.5))
         gps_alt = 580.0 + baro_alt
         baro_alt_amsl = gps_alt - 0.12
+
+        # ── Battery / alternator simulation ──
+        alt_healthy = True
+        if alternator_failure_frac is not None and frac >= alternator_failure_frac:
+            alt_healthy = False
+
+        draw = BATTERY_BASELINE_DRAW_A + BATTERY_LOAD_DRAW_A * max(0.0, load)
+        charge = BATTERY_ALTERNATOR_CHARGE_A if alt_healthy else 0.0
+        net_current = draw - charge  # positive = discharging
+        battery_soc_ah -= (net_current * DT / 3600.0)
+        battery_soc_ah = max(0.0, min(BATTERY_FULL_CHARGE_AH, battery_soc_ah))
+        battery_soc_pct = (battery_soc_ah / BATTERY_FULL_CHARGE_AH) * 100.0
+
+        batt = expected_battery(load, battery_soc_pct, alt_healthy)
+        # Add small noise to battery readings
+        batt_v = batt["battery_voltage_v"] + rng.gauss(0, 0.05)
+        batt_a = max(0.0, batt["battery_current_a"] + rng.gauss(0, 0.1))
 
         rul_frac = 1.0 if fault_type == "healthy" else max(0.0, 1.0 - s_t)
         # Pre-onset rows of a fault run are a physically healthy engine (the
@@ -262,6 +368,7 @@ def generate_run(
             "gps_alt": gps_alt,
             "baro_alt": baro_alt,
             "baro_alt_amsl": baro_alt_amsl,
+            "altitude_m": round(altitude_m, 2),
             "airspeed": airspeed,
             "gps_speed": gps_speed,
             "gps_course": gps_course,
@@ -276,6 +383,9 @@ def generate_run(
             "oil_pressure_bar": reading["oil_pressure_bar"],
             "fuel_flow_lph": reading["fuel_flow_lph"],
             "vibration": reading["vibration"],
+            "battery_voltage_v": round(batt_v, 3),
+            "battery_current_a": round(batt_a, 3),
+            "battery_soc_pct": round(battery_soc_pct, 2),
             "fault_type": row_fault_type,
             "fault_severity": round(s_t, 6),
             "rul_frac": round(rul_frac, 6),
@@ -290,9 +400,10 @@ def generate_run(
 
 
 FIELDNAMES = [
-    "timestamp", "t_sec", "gps_alt", "baro_alt", "baro_alt_amsl", "airspeed",
-    "gps_speed", "gps_course", "roll", "pitch", "yaw", "load", "rpm", "egt_c",
-    "cht_c", "oil_temp_c", "oil_pressure_bar", "fuel_flow_lph", "vibration",
+    "timestamp", "t_sec", "gps_alt", "baro_alt", "baro_alt_amsl", "altitude_m",
+    "airspeed", "gps_speed", "gps_course", "roll", "pitch", "yaw", "load",
+    "rpm", "egt_c", "cht_c", "oil_temp_c", "oil_pressure_bar", "fuel_flow_lph",
+    "vibration", "battery_voltage_v", "battery_current_a", "battery_soc_pct",
     "fault_type", "fault_severity", "rul_frac", "run_id", "source_file",
     "ambient_offset_c", "archetype", "near_miss",
 ]
@@ -316,6 +427,8 @@ def _cli():
     p.add_argument("--archetype", default=None, choices=list(ARCHETYPES))
     p.add_argument("--duration_sec", type=float, default=None)
     p.add_argument("--near_miss", action="store_true")
+    p.add_argument("--alternator_failure_frac", type=float, default=None,
+                   help="Fraction of flight at which alternator fails (0-1)")
     p.add_argument("--out", default=None, help="output CSV path (default: data/runs/<run_id>.csv)")
     args = p.parse_args()
 
@@ -329,6 +442,7 @@ def _cli():
         archetype=args.archetype,
         duration_sec=args.duration_sec,
         near_miss=args.near_miss,
+        alternator_failure_frac=args.alternator_failure_frac,
     )
     out = args.out or f"data/runs/{args.run_id}.csv"
     write_run_csv(out, rows)
@@ -337,3 +451,4 @@ def _cli():
 
 if __name__ == "__main__":
     _cli()
+

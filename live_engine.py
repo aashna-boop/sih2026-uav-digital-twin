@@ -21,7 +21,7 @@ the real ones.
 """
 import numpy as np
 
-from digital_twin import expected_sensors, LAG_TAU, SENSORS, MEASURED_HEALTHY_NOISE_STD
+from digital_twin import expected_sensors, LAG_TAU, SENSORS, MEASURED_HEALTHY_NOISE_STD, expected_battery
 from engine_physics_model import FAULT_MODEL, NOISE_SCALE
 
 # Calibrated from engine_master_dataset.csv (max airspeed observed in the
@@ -75,7 +75,7 @@ class LiveEngine:
 
         # ---- Expected (healthy) sensor values: same reference model + lag
         # constants used everywhere else in the project (digital_twin.py) ----
-        target = expected_sensors(load, AMBIENT_OFFSET_C)
+        target = expected_sensors(load, AMBIENT_OFFSET_C, alt)
         expected = {}
         for s in SENSORS:
             tau = LAG_TAU[s]
@@ -108,8 +108,17 @@ class LiveEngine:
         actual["fuel_flow_lph"] = max(0.1, actual["fuel_flow_lph"])
         actual["vibration"] = max(0.05, actual["vibration"])
 
+        # ---- Battery / alternator telemetry baseline ----
+        rpm_val = actual["rpm"]
+        batt_v, batt_i, batt_soc = expected_battery(load, rpm_val, dt)
+
         return {
             "t_sec": t_sec, "load": load, "altitude": alt,
             "expected": expected, "actual": actual,
+            "battery": {
+                "voltage_v": round(batt_v, 2),
+                "current_a": round(batt_i, 2),
+                "soc_pct": round(batt_soc, 1),
+            },
             "true_fault": fault_label, "true_severity": severity,
         }
