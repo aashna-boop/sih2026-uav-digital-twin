@@ -5,8 +5,8 @@ const FAULT_LABELS = {
   oil_pressure_drop: 'Oil Pressure Drop',
 };
 
-const SEV_MONITOR = 0.12;
-const SEV_CRITICAL = 0.25;
+// Single source of truth for these lives in lib/missionAnalytics.js
+import { SEV_MONITOR, SEV_CRITICAL } from '../lib/missionAnalytics';
 
 export default function DiagnosisPanel({ prediction, trueFault }) {
   if (!prediction) {

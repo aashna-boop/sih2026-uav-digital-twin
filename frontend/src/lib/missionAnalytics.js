@@ -68,18 +68,26 @@ export const TREND_METRICS = {
     help: '100 − model severity × 100 (ML severity regressor output)',
     higherIsBetter: true, watch: 100 - SEV_MONITOR * 100, degraded: 100 - SEV_CRITICAL * 100, yMin: 50, yMax: 102,
   },
+  rul: {
+    label: 'Remaining life index', short: 'RUL', unit: '%',
+    help: 'ML-predicted remaining useful life as % of full life (ML RUL regressor output × 100)',
+    // The trained RUL target is exactly 1 - severity, so use the same bands as the health index (derived from SEV_*).
+    higherIsBetter: true, watch: 100 - SEV_MONITOR * 100, degraded: 100 - SEV_CRITICAL * 100, yMin: 40, yMax: 102,
+  },
 };
-export const TREND_KEYS = ['fuel', 'lube', 'thermal', 'health'];
+export const TREND_KEYS = ['fuel', 'lube', 'thermal', 'health', 'rul'];
 
 export function rawIndices(d) {
   const s = d.sensors, e = d.expected;
   const sev = d.prediction ? d.prediction.severity : 0;
+  const rul = d.prediction ? d.prediction.rul : null;
   const safe = (x) => (Number.isFinite(x) ? x : null);
   return {
     fuel: safe(((s.rpm / s.fuel_flow_lph) / (e.rpm / e.fuel_flow_lph)) * 100),
     lube: safe((s.oil_pressure_bar / e.oil_pressure_bar) * 100),
     thermal: safe(s.cht_c - e.cht_c),
     health: safe(100 - sev * 100),
+    rul: rul == null ? null : safe(rul * 100),
   };
 }
 
@@ -474,7 +482,7 @@ export function esc(v) {
 const pct = (v) => (v == null ? '—' : (v * 100).toFixed(0));
 const num = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : v.toFixed(d));
 const LEVEL_CLASS = { nominal: 'adv-nominal', early: 'adv-early', monitor: 'adv-monitor', critical: 'adv-critical' };
-const METRIC_COLORS = { fuel: '#4A9FE0', lube: '#2FBF8F', thermal: '#F2A93C', health: '#C38AF0' };
+const METRIC_COLORS = { fuel: '#4A9FE0', lube: '#2FBF8F', thermal: '#F2A93C', health: '#C38AF0', rul: '#3FB8C4' };
 
 export function renderTrendTabs(activeKey) {
   return TREND_KEYS.map((k) => `<button class="tab ${k === activeKey ? 'active' : ''}" data-metric="${k}">${esc(TREND_METRICS[k].label)}</button>`).join('');
