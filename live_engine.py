@@ -2,9 +2,8 @@
 live_engine.py
 
 A LIVE, streaming version of engine_physics_model.py's healthy-engine
-simulation and fault-injection logic. The offline version (engine_physics_model.py)
-worked on a whole recorded flight array at once (np.gradient, rolling windows,
-etc.) — this version does the exact same physics equations, but one flight
+simulation and fault-injection logic. The offline version works on a whole
+recorded run at once; this version does the exact same physics, one flight
 sample at a time, as SITL telemetry arrives in real time.
 
 Two outputs are computed on every update:
@@ -13,41 +12,27 @@ Two outputs are computed on every update:
   - "actual": what the engine shows right now, INCLUDING any fault currently
     injected (this is what a real sensor would report)
 
-This is actually a cleaner residual setup than replaying a separate
-pre-recorded healthy flight: the healthy baseline is computed fresh, live,
-for the exact same moment as the (possibly faulty) reading, using the same
-physics model your team already built and validated when generating
-engine_master_dataset.csv.
-
-Reference constants and fault equations are copied verbatim from
-engine_physics_model.py so behavior matches the dataset the ML models were
-trained on.
+Reference formulas, lag time constants, fault deltas and noise levels are
+all imported directly from digital_twin.py / engine_physics_model.py (not
+re-derived here) so a live demo run is governed by the exact same physics
+the trained models were fit against -- previously this file had its own
+hand-approximated copies of those numbers, which had quietly drifted from
+the real ones.
 """
 import numpy as np
 
-RPM_IDLE = 1700.0
-RPM_MAX = 5800.0
-EGT_BASELINE_C = 650.0
-EGT_MAX_RISE_C = 300.0
-CHT_AMBIENT_C = 25.0
-CHT_MAX_RISE_C = 140.0
-CHT_TIME_CONSTANT_S = 45.0
-OIL_TEMP_AMBIENT_C = 25.0
-OIL_TEMP_MAX_RISE_C = 90.0
-OIL_TEMP_TIME_CONSTANT_S = 90.0
-OIL_PRESSURE_IDLE_BAR = 1.5
-OIL_PRESSURE_MAX_BAR = 5.0
-FUEL_FLOW_IDLE_LPH = 3.0
-FUEL_FLOW_MAX_LPH = 24.0
+from digital_twin import expected_sensors, LAG_TAU, SENSORS, MEASURED_HEALTHY_NOISE_STD
+from engine_physics_model import FAULT_MODEL, NOISE_SCALE
 
-# Calibrated from engine_master_dataset.csv's healthy run (max airspeed
-# observed ~28.3 m/s). The offline script normalized airspeed by the max
-# seen across the WHOLE recorded flight, which isn't available live —
-# this fixed constant is the live equivalent of that normalization.
+# Calibrated from engine_master_dataset.csv (max airspeed observed in the
+# original seed flight ~28.3 m/s). The offline generator normalizes/derives
+# load from a scripted flight-profile archetype; that's not available live,
+# so this is the live equivalent: infer load from climb rate + airspeed.
 ASSUMED_MAX_AIRSPEED = 28.0
 
-FAULT_ONSET_RAMP_SEC = 45.0   # wall-clock seconds for an injected fault to reach full target severity
-FAULT_TARGET_SEVERITY = 0.6   # matches engine_physics_model.py's --severity default
+FAULT_ONSET_RAMP_SEC = 15.0   # wall-clock seconds for an injected fault to ramp to full target severity (demo pacing, not the dataset's randomized onset -- a live demo needs a fast, visible ramp)
+FAULT_TARGET_SEVERITY = 0.6   # mid-range of the training severity distribution (0.2-0.9)
+AMBIENT_OFFSET_C = 0.0        # live SITL has no ambient-temperature telemetry; assume the 25C reference day
 
 
 class LiveEngine:
@@ -55,10 +40,7 @@ class LiveEngine:
         self.prev_alt = None
         self.prev_t = None
         self.climb_rate_smoothed = 0.0
-        self.cht_expected = CHT_AMBIENT_C
-        self.cht_actual = CHT_AMBIENT_C
-        self.oil_temp_expected = OIL_TEMP_AMBIENT_C
-        self.oil_temp_actual = OIL_TEMP_AMBIENT_C
+        self.lagged = dict(expected_sensors(0.35, AMBIENT_OFFSET_C))
         self.fault_type = None       # None or one of the known fault names
         self.fault_start_t = None
 
@@ -76,7 +58,8 @@ class LiveEngine:
         else:
             dt = max(t - self.prev_t, 1e-3)
             climb_rate = (alt - self.prev_alt) / dt
-        # Exponential smoothing (live equivalent of the offline centered rolling mean)
+        # Exponential smoothing (live equivalent of the offline profile's
+        # scripted, already-smooth load curve).
         self.climb_rate_smoothed = 0.85 * self.climb_rate_smoothed + 0.15 * climb_rate
         self.prev_alt, self.prev_t = alt, t
 
@@ -85,54 +68,45 @@ class LiveEngine:
         climb_component = max(climb_norm, 0)
 
         load = 0.35 + 0.4 * climb_component + 0.25 * airspeed_norm
-        return float(np.clip(load, 0.15, 1.0))
+        return float(np.clip(load, 0.15, 1.2))
 
     def update(self, t_sec, alt, airspeed, roll, pitch, yaw, dt=0.4):
         load = self._load_from_state(t_sec, alt, airspeed)
 
-        # ---- Expected (healthy) sensor values ----
-        rpm_exp = RPM_IDLE + load * (RPM_MAX - RPM_IDLE) + np.random.normal(0, 15)
-        egt_exp = EGT_BASELINE_C + load * EGT_MAX_RISE_C + np.random.normal(0, 5)
-        alpha_cht = dt / (CHT_TIME_CONSTANT_S + dt)
-        self.cht_expected += alpha_cht * ((CHT_AMBIENT_C + load * CHT_MAX_RISE_C) - self.cht_expected)
-        cht_exp = self.cht_expected + np.random.normal(0, 1.5)
-        alpha_oil = dt / (OIL_TEMP_TIME_CONSTANT_S + dt)
-        self.oil_temp_expected += alpha_oil * ((OIL_TEMP_AMBIENT_C + load * OIL_TEMP_MAX_RISE_C) - self.oil_temp_expected)
-        oil_temp_exp = self.oil_temp_expected + np.random.normal(0, 1.0)
-        oil_pressure_exp = OIL_PRESSURE_IDLE_BAR + (rpm_exp - RPM_IDLE) / (RPM_MAX - RPM_IDLE) * (
-            OIL_PRESSURE_MAX_BAR - OIL_PRESSURE_IDLE_BAR
-        ) + np.random.normal(0, 0.05)
-        fuel_flow_exp = FUEL_FLOW_IDLE_LPH + (load ** 1.3) * (FUEL_FLOW_MAX_LPH - FUEL_FLOW_IDLE_LPH) + np.random.normal(0, 0.3)
-        vibration_exp = 0.5 + (rpm_exp / RPM_MAX) * 0.8 + np.random.normal(0, 0.05)
+        # ---- Expected (healthy) sensor values: same reference model + lag
+        # constants used everywhere else in the project (digital_twin.py) ----
+        target = expected_sensors(load, AMBIENT_OFFSET_C)
+        expected = {}
+        for s in SENSORS:
+            tau = LAG_TAU[s]
+            self.lagged[s] = self.lagged[s] + dt * (target[s] - self.lagged[s]) / max(tau, dt)
+            expected[s] = self.lagged[s]
 
-        expected = {
-            "rpm": rpm_exp, "egt_c": egt_exp, "cht_c": cht_exp,
-            "oil_temp_c": oil_temp_exp, "oil_pressure_bar": oil_pressure_exp,
-            "fuel_flow_lph": fuel_flow_exp, "vibration": vibration_exp,
-        }
-
-        # ---- Actual sensor values (apply fault perturbation if active) ----
-        actual = dict(expected)
+        # ---- Actual sensor values: expected + fault delta (if any) + sensor
+        # noise (same noise model as engine_physics_model.py, so live
+        # residuals land in the same distribution the models were trained
+        # on) ----
         severity = 0.0
         fault_label = "healthy"
+        actual = dict(expected)
 
         if self.fault_type is not None:
             if self.fault_start_t is None:
                 self.fault_start_t = t_sec
             elapsed = max(t_sec - self.fault_start_t, 0)
-            ramp = min(elapsed / FAULT_ONSET_RAMP_SEC, 1.0) * FAULT_TARGET_SEVERITY
-            severity = ramp
+            severity = min(elapsed / FAULT_ONSET_RAMP_SEC, 1.0) * FAULT_TARGET_SEVERITY
             fault_label = self.fault_type
+            for chan, delta_at_1 in FAULT_MODEL[self.fault_type].items():
+                actual[chan] = actual.get(chan, 0.0) + delta_at_1 * severity
 
-            if self.fault_type == "valve_wear":
-                actual["rpm"] -= ramp * 400
-                actual["egt_c"] += ramp * 120
-                actual["fuel_flow_lph"] += ramp * 2.0
-            elif self.fault_type == "cooling_failure":
-                actual["cht_c"] += ramp * 60
-                actual["oil_temp_c"] += ramp * 40
-            elif self.fault_type == "oil_pressure_drop":
-                actual["oil_pressure_bar"] = max(actual["oil_pressure_bar"] - ramp * 2.0, 0.1)
+        for s in SENSORS:
+            noise_std = MEASURED_HEALTHY_NOISE_STD[s] * NOISE_SCALE.get(s, 1.15)
+            actual[s] = actual[s] + np.random.normal(0, noise_std)
+
+        actual["oil_pressure_bar"] = max(0.25, actual["oil_pressure_bar"])
+        actual["rpm"] = max(300.0, actual["rpm"])
+        actual["fuel_flow_lph"] = max(0.1, actual["fuel_flow_lph"])
+        actual["vibration"] = max(0.05, actual["vibration"])
 
         return {
             "t_sec": t_sec, "load": load, "altitude": alt,
