@@ -42,41 +42,64 @@ This is the part that makes the whole project credible: **your team built a
 real, physics-based engine simulator**, not just made-up numbers. Here's the
 chain, in order:
 
-### Step 1 — Fly a mission in ArduPilot SITL
-ArduPilot SITL is real, actual autopilot software (the same code that flies
-real drones), just running in a simulator instead of on real hardware. A
-mission is flown, and it logs everything: altitude, airspeed, roll, pitch,
-yaw, GPS, etc.
+### Step 1 — `digital_twin.py`: the healthy reference model
+The physical core of the whole project. It's a small set of formulas — fit
+by regression against a real recorded healthy flight — for what every
+sensor (RPM, EGT, CHT, oil temp, oil pressure, fuel flow, vibration) *should*
+read at a given throttle/load setting and ambient temperature, plus the
+first-order thermal/mechanical time constants for how fast each sensor
+actually catches up to a throttle change (CHT and oil temperature lag
+seconds-to-tens-of-seconds behind a change, the way real metal thermal mass
+behaves; RPM and oil pressure track almost immediately). Both the simulator
+(step 2) and the trained model (step 4) use this exact same reference — the
+simulator adds noise and faults on top of it to generate telemetry, and the
+trained model subtracts it from real telemetry to compute "how far off from
+expected is this reading" (the residual), so there's only one healthy-engine
+model to keep consistent, not two.
 
-### Step 2 — `merge_mission_profile.py`
-The raw flight log comes out as several separate files (GPS data, attitude
-data, airspeed data, barometer data). This script lines them all up by
-timestamp into one clean, single timeline — "at this exact second, the
-drone was at this altitude, this airspeed, tilted this many degrees."
+### Step 2 — `engine_physics_model.py`: the simulator
+Takes a randomized flight profile (one of 4 archetypes — short hop, long
+cruise, climb-cruise-descent, variable-load — each with randomized duration
+and a smoothly-varying throttle/airspeed history) and, using the reference
+model from step 1, generates one run's full sensor telemetry:
+- Applies the thermal/mechanical lag from step 1, so a throttle change
+  produces a realistic gradual sensor response, not an instant jump
+- Adds sensor noise, moderately increased over what was actually measured
+  on the original recorded flight (reflecting that a single clean flight
+  understates real fleet sensor variability)
+- Can inject one of three faults — valve wear, cooling failure, oil
+  pressure drop — each with a randomized severity and onset point, ramping
+  in gradually rather than switching on abruptly, with a mild stochastic
+  (not perfectly straight-line) progression
+- Can also generate a "near-miss" healthy run: a genuine high-load/hot-day
+  excursion with no fault at all, so a transient elevated reading isn't by
+  itself proof of a fault
 
-### Step 3 — `engine_physics_model.py`
-This is the heart of the "digital twin" idea. It takes that flight timeline
-and simulates what a real piston engine (modeled loosely on a Rotax
-912-class engine, a real engine used in small UAVs) would be doing at every
-one of those moments:
-- Higher altitude/climbing → more engine load → higher RPM, hotter exhaust
-- It even models realistic *thermal lag* — temperatures don't jump
-  instantly, they rise and fall gradually, the way real metal does
-- On top of the healthy simulation, it can inject specific, realistic
-  faults: valve wear, ignition problems, cooling failure, oil pressure
-  drop — each with its own distinct, physically-reasoned effect on the
-  sensors (e.g. a cooling fault makes cylinder temperature climb faster
-  and not level off normally)
+### Step 3 — `generate_batch.py`
+Calls the simulator many times with randomized parameters — 69 runs across
+4 fault classes (including near-miss healthy runs), each a genuinely
+different flight rather than the same trajectory relabeled — and writes
+each run to its own CSV under `data/runs/`.
 
 ### Step 4 — `combine_datasets.py`
-Takes the healthy simulation and all the fault simulations and merges them
-into one master file — this became `engine_master_dataset.csv`, which
-everything else in the project is built on.
+Merges every run CSV in `data/runs/` into one master file —
+`engine_master_dataset.csv`, ~155,000 rows across 69 runs — which everything
+else in the project is built on.
 
 **Why this matters**: this means the "expected" sensor values used
 throughout this project aren't guesses — they're the output of a genuine
-physics simulation your team built, driven by a genuine flight simulator.
-That's a real, defensible foundation, not a shortcut.
+physics model your team built (with coefficients fit from real recorded
+flight data, not invented), and the dataset it drives now spans dozens of
+independently-varied flights instead of one. That's a real, defensible
+foundation, not a shortcut.
+
+*(Earlier project notes described a `merge_mission_profile.py` step that
+consumed raw multi-file ArduPilot SITL logs directly. That script was never
+actually part of the committed pipeline — verified by checking every branch
+and fork on GitHub, not just the local checkout. The 4 flight-profile
+archetypes above replace it: same role (turning a flight timeline into the
+load/airspeed history the physics model needs), generated programmatically
+with randomized variety instead of requiring a fresh SITL flight per run.)*
 
 ---
 
@@ -99,16 +122,24 @@ Three separate models were trained:
 We tested it honestly: trained only on the **first 75% of each flight**,
 tested on the **last 25%** — a part of the flight the model never saw,
 where the fault is further along. That's a fair test of real learning, not
-memorization.
+memorization. With 69 independent runs now (instead of 1 per class), this
+also means the model has to have learned a fault signature that holds up
+across many different flights, ambient conditions and severity levels, not
+just one specific fault trajectory.
 
 ### Results, explained
-- **Which fault it is: 100% correct** on unseen data. This is believable
-  here because each fault has a large, distinctive signature in this
-  dataset — not a sign of overfitting, but worth stating plainly since a
-  perfect score always deserves scrutiny.
-- **How severe it is: ~59% accurate** (R² ≈ 0.59). A genuinely harder
-  problem, solved reasonably — real signal, real room to improve.
-- **Remaining life estimate: similarly ~59% accurate.** Same honest story.
+- **Which fault it is: 93.4% correct** on unseen data. (An earlier version
+  of this dataset — one flight per fault class, one fixed severity, no
+  randomization — scored a flat 100%. That wasn't a better model; it was a
+  much easier, less realistic test. Once the dataset had many independently
+  varied flights, correctly-labeled pre-onset segments, and realistic sensor
+  noise, 93.4% is what a genuinely rigorous held-out evaluation gives.)
+  Almost all of the remaining errors are right at a fault's onset — the
+  genuinely ambiguous moment where a real detector *should* sometimes be
+  uncertain — while well-progressed faults are caught 97–99% of the time.
+- **How severe it is: R² ≈ 0.80.** A genuinely harder, continuous problem,
+  solved well — real signal, with expected room to improve further.
+- **Remaining life estimate: same R² ≈ 0.80.** Same honest story.
 
 ### What "SHAP" is
 A way of asking the model "why did you decide that?" and getting a real,
@@ -210,22 +241,35 @@ rc 2 1500      (levels off once climbing)
 
 ## 7. Honest limitations
 
-- **Only one flight per fault condition** in the dataset — proven to
-  generalize within a flight, not yet proven across independent flights
-- **Severity/remaining-life predictions are real but imperfect** (~59%
-  accurate) — genuinely harder than fault identification, which is why it
-  scores lower, and that's expected, not a flaw to hide
+- **All 69 runs are synthetic (physics-simulated), not independent real
+  SITL flights** — the flight-profile *shapes* (short hop, long cruise,
+  climb-cruise-descent, variable-load) are hand-designed archetypes with
+  randomized duration/throttle history, fit to resemble the one real
+  recorded flight this project started from, not 69 genuinely separate
+  ArduPilot missions. Real independent flights per fault type would be a
+  stronger validation than this project currently has time for.
+- **Only 3 fault types are modeled** (valve_wear, cooling_failure,
+  oil_pressure_drop) — ignition_degradation and bearing_wear are not in this
+  dataset or these models.
+- **`healthy` recall is the lowest of the four classes (0.83)** — the model
+  is somewhat more likely to flag a genuinely healthy reading as an
+  early-stage fault than the reverse. A defensible, safety-conservative
+  failure mode (false alarms cost less than missed faults), but worth
+  naming rather than hiding.
 - **The live version depends on a working SITL connection** — if SITL
   isn't running or reachable on the expected port, the dashboard will show
   a "not connected" state rather than data
 - **No unknown-fault fallback** — right now, the model always picks one of
   its four known classes, even for a fault type it's never seen; it can't
   currently say "I don't recognize this"
-- **The severity/RUL model's predictions cap out around 0.32–0.35** for
-  these particular fault runs rather than reaching 1.0, even at a fault's
-  true worst point — the dashboard's alert thresholds were specifically
-  recalibrated to match this real, observed model behavior, not a
-  theoretical 0–1 scale
+- **The live dashboard's alert thresholds have not been rechecked against
+  this retrained model.** They were previously hand-calibrated (0.12/0.25)
+  to the old model's narrow observed severity output (capped ~0.32–0.35).
+  This model's severity range is different (randomized 0.2–0.9 severities
+  across runs), so those threshold constants are now almost certainly
+  stale — `app.py`/`app_live.py`/`live_engine.py` were not touched by this
+  update. Re-run a few fault scenarios through the live dashboard and
+  re-check the threshold constants before presenting.
 
 ---
 
@@ -233,10 +277,11 @@ rc 2 1500      (levels off once climbing)
 
 | File | What it's for |
 |---|---|
-| `merge_mission_profile.py` | Combines raw SITL flight logs into one clean timeline |
-| `engine_physics_model.py` | The offline physics engine simulator + fault injection (generates the dataset) |
-| `combine_datasets.py` | Merges all the individual fault-run CSVs into `engine_master_dataset.csv` |
-| `engine_master_dataset.csv` | The full labeled dataset everything is trained on |
+| `digital_twin.py` | The healthy-engine reference model (fitted formulas + thermal lag constants) — shared by the simulator and the trained model |
+| `engine_physics_model.py` | The physics engine simulator + fault injection for one run |
+| `generate_batch.py` | Calls the simulator many times with randomized severity/onset/ambient/archetype to build a full batch of runs |
+| `combine_datasets.py` | Merges all the individual run CSVs (`data/runs/*.csv`) into `engine_master_dataset.csv` |
+| `engine_master_dataset.csv` | The full labeled dataset everything is trained on (69 runs, ~155,000 rows) |
 | `train_model.py` | Trains the three AI models from that dataset |
 | `model_fault_classifier.joblib` | Trained "which fault is it" model |
 | `model_severity_regressor.joblib` | Trained "how severe is it" model |

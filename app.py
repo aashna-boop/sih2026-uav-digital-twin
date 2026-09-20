@@ -13,6 +13,7 @@ Then open: http://localhost:8000
 """
 import asyncio
 import json
+from collections import deque
 import joblib
 import numpy as np
 import pandas as pd
@@ -24,13 +25,17 @@ from fastapi.staticfiles import StaticFiles
 
 DATA_PATH = "engine_master_dataset.csv"
 
-SENSORS = ["rpm", "egt_c", "cht_c", "oil_temp_c", "oil_pressure_bar", "fuel_flow_lph", "vibration"]
-FLIGHT_STATE = ["airspeed", "load", "roll", "pitch"]
-FEATURES = (
-    SENSORS + FLIGHT_STATE
-    + [f"{s}_resid" for s in SENSORS]
-    + [f"{s}_resid_pct" for s in SENSORS]
-)
+# Model input = the 7 smoothed digital-twin residuals, built exactly as in
+# train_model.py (same reference model, same trailing window, same warm-up
+# drop). Keep these two constants in sync with train_model.py.
+from digital_twin import SENSORS, reference_trajectory
+
+SMOOTH_WINDOW_SAMPLES = 10  # 2.5s trailing mean at the dataset's 4 Hz sample rate
+WARMUP_DROP = 4             # first rows of a run, before the smoothing window has filled
+FEATURES = [f"{s}_resid_smooth" for s in SENSORS]
+
+# Trend of predicted severity / RUL sent with each payload as `history`.
+TREND_HISTORY_MAX = 300
 
 app = FastAPI()
 app.add_middleware(
@@ -54,32 +59,52 @@ reg_rul = joblib.load("model_rul_regressor.joblib")
 
 # ---------- Load dataset and rebuild the same residual features used in training ----------
 raw = pd.read_csv(DATA_PATH)
-healthy = raw[raw.source_file == "engine_healthy.csv"].sort_values("t_sec").reset_index(drop=True)
-baseline = healthy[SENSORS].copy()
+if "ambient_offset_c" not in raw.columns:
+    raw["ambient_offset_c"] = 0.0
 
-RUNS = {}  # fault_key -> dataframe with features, indexed 0..N-1
-FILE_MAP = {
-    "healthy": "engine_healthy.csv",
-    "valve_wear": "engine_valve_wear.csv",
-    "cooling_failure": "engine_cooling_failure.csv",
-    "oil_pressure_drop": "engine_oil_pressure_drop.csv",
-}
-for key, fname in FILE_MAP.items():
-    run = raw[raw.source_file == fname].sort_values("t_sec").reset_index(drop=True).copy()
+FAULT_KEYS = ["healthy", "valve_wear", "cooling_failure", "oil_pressure_drop"]
+REPLAY_TARGET_SEVERITY = 0.6   # same as live_engine's injected target severity
+REPLAY_TARGET_DURATION_S = 600.0
+
+
+def pick_run_id(fault_key):
+    """The dataset now holds many independent runs per class. Replay one
+    representative, deterministic run per fault: not a near-miss run, and the
+    one whose peak severity (or, for healthy, whose length) is closest to the
+    demo target, so onset and progression are visible in a ~2 minute replay."""
+    runs = raw[raw.run_id.str.rsplit("_", n=1).str[0] == fault_key]
+    runs = runs[runs.near_miss == 0] if "near_miss" in runs.columns else runs
+    g = runs.groupby("run_id").agg(T=("t_sec", "max"), sev=("fault_severity", "max"))
+    g = g[(g["T"] >= 450) & (g["T"] <= 800)]
+    if fault_key == "healthy":
+        score = (g["T"] - REPLAY_TARGET_DURATION_S).abs()
+    else:
+        score = (g["sev"] - REPLAY_TARGET_SEVERITY).abs()
+    return score.sort_values(kind="stable").index[0]
+
+
+def build_run(run_id):
+    g = raw[raw.run_id == run_id].sort_values("t_sec").reset_index(drop=True).copy()
+    ref = reference_trajectory(g["t_sec"].tolist(), g["load"].tolist(), g["ambient_offset_c"].tolist())
     for s in SENSORS:
-        run[f"{s}_expected"] = baseline[s].values[: len(run)]
-        run[f"{s}_resid"] = run[s] - run[f"{s}_expected"]
-        run[f"{s}_resid_pct"] = run[f"{s}_resid"] / (run[f"{s}_expected"].abs() + 1e-6)
-    RUNS[key] = run
+        g[f"{s}_expected"] = ref[s]
+        g[f"{s}_resid"] = g[s] - g[f"{s}_expected"]
+        g[f"{s}_resid_smooth"] = g[f"{s}_resid"].rolling(SMOOTH_WINDOW_SAMPLES, min_periods=WARMUP_DROP).mean()
+    return g.iloc[WARMUP_DROP:].reset_index(drop=True)
 
-RUN_LEN = len(RUNS["healthy"])
+
+RUNS = {key: build_run(pick_run_id(key)) for key in FAULT_KEYS}   # fault_key -> dataframe with features
+for key, run in RUNS.items():
+    print(f"[app] replay run for {key!r}: {run.run_id.iloc[0]} ({len(run)} rows)")
+
 CLASS_LABELS = sorted(raw.fault_type.unique().tolist())
 
 # ---------- Simulation state (shared across connected clients) ----------
 state = {
     "idx": 0,
     "active_fault": "healthy",   # which dataset run is currently being streamed
-    "speed": 50,                 # rows advanced per tick (real data is 25Hz -> ~6x playback speed, full 647s run in ~2min)
+    "speed": 8,                  # rows advanced per tick (data is 4Hz, tick is 0.4s -> 5x playback speed, a ~600s run in ~2min)
+    "history": deque(maxlen=TREND_HISTORY_MAX),   # rolling {timestamp, severity, rul} for the current run
     "response_confirmed": False,
     "response_start_idx": None,
 }
@@ -145,15 +170,19 @@ async def simulation_loop():
             continue
 
         run = RUNS[state["active_fault"]]
-        idx = state["idx"] % RUN_LEN
-        row = run.iloc[idx]
+        run_len = len(run)
+        if state["idx"] >= run_len:
+            # Replay reached the end of the recorded run and loops: new session, fresh trend.
+            state["idx"] = 0
+            state["history"].clear()
+        row = run.iloc[state["idx"]]
 
         pred = predict_row(row)
+        state["history"].append({"timestamp": float(row["t_sec"]), "severity": pred["severity"], "rul": pred["rul"]})
 
         if state["response_confirmed"]:
-            elapsed = state["idx"] - state["response_start_idx"]
-            glide_ticks = 60  # ~24s of wall-clock glide after confirmation
-            p = min(1.0, elapsed / glide_ticks)
+            elapsed_ticks = (state["idx"] - state["response_start_idx"]) / state["speed"]
+            p = min(1.0, elapsed_ticks / 60)  # 60 ticks x 0.4s = ~24s of wall-clock glide after confirmation
             alt = float(row["gps_alt"]) - 40 * p  # simple descent toward RTL
         else:
             alt = float(row["gps_alt"])
@@ -166,6 +195,7 @@ async def simulation_loop():
             "expected": {s: float(row[f"{s}_expected"]) for s in SENSORS},
             "altitude": alt,
             "prediction": pred,
+            "history": list(state["history"]),
             "response_confirmed": state["response_confirmed"],
         }
         await broadcast(connected, payload)
@@ -183,11 +213,13 @@ async def ws_endpoint(websocket: WebSocket):
             if action == "inject_fault":
                 state["active_fault"] = data.get("fault", "healthy")
                 state["idx"] = 0
+                state["history"].clear()
                 state["response_confirmed"] = False
                 state["response_start_idx"] = None
             elif action == "clear_fault":
                 state["active_fault"] = "healthy"
                 state["idx"] = 0
+                state["history"].clear()
                 state["response_confirmed"] = False
                 state["response_start_idx"] = None
             elif action == "confirm_action":
