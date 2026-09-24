@@ -333,6 +333,7 @@ rc 2 1500      (levels off once climbing)
 | `MODEL_REPORT.md` | Technical write-up of the model for anyone wanting full detail |
 | `RESEARCH_GROUNDING.md` | How this project's approach connects to prior published work (NASA C-MAPSS methodology, physics-informed/digital-twin fault diagnosis) |
 | `DEPLOYMENT_ROADMAP.md` | Honest current-state-to-deployment plan: what's built vs. aspirational, phased path to real hardware |
+| `FINAL_PROJECT_REPORT.md` | The single up-to-date synthesis of the whole project — read this first if you only read one document |
 
 ---
 
