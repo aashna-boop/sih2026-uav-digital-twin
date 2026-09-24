@@ -35,6 +35,7 @@ BEFORE RUNNING THIS:
    dashboard automatically.
 """
 import asyncio
+import json
 import os
 import time
 import math
@@ -60,7 +61,15 @@ MAVLINK_CONNECTION_STRING = os.environ.get("MAVLINK_CONNECTION_STRING", "udpin:1
 
 FEATURES = [f"{s}_resid_smooth" for s in SENSORS]  # must match train_model.py's FEATURES exactly
 SMOOTH_WINDOW_SEC = 2.5  # matches train_model.py's SMOOTH_WINDOW_SAMPLES (10) at the dataset's dt=0.25s
-CLASS_LABELS = ["cooling_failure", "healthy", "oil_pressure_drop", "valve_wear"]  # alphabetical, matches training
+
+# CLASS_LABELS used to be hardcoded here as a 4-item list -- that's exactly
+# the kind of thing that silently breaks (wrong label, not a crash) the
+# moment the model is retrained on a different class list, which is exactly
+# what happened when the 3-fault model became 8-class. Load it from the
+# model's own training report instead, so this can never drift from the
+# model actually loaded below.
+with open("model_report.json") as f:
+    CLASS_LABELS = json.load(f)["classes"]  # already alphabetically sorted, matches training
 
 # Rolling buffer of (t_sec, resid) per sensor, so the live feature stream
 # gets the same short-window smoothing the offline model was trained on
@@ -268,6 +277,20 @@ def command_throttle_override(pwm):
     return True
 
 
+def command_sensor_fault_response():
+    """
+    sensor_fault is NOT an engine fault (see ADVISORIES in static/index.html
+    and MODEL_REPORT.md) -- the correct human response is to cross-check or
+    recalibrate the flagged sensor, not to reduce power or divert on a
+    single suspect channel. Deliberately sends no MAVLink command; logged so
+    it's visible the confirmation was received and handled correctly, not
+    silently dropped.
+    """
+    print("[app_live] sensor_fault confirmed: no engine command sent "
+          "(suspected sensor issue, not an engine fault -- cross-check/recalibrate instead).")
+    return True
+
+
 def command_oil_pressure_response():
     """
     Real published emergency procedure order (e.g. Cessna 172 checklist:
@@ -293,6 +316,14 @@ FAULT_RESPONSES = {
     "oil_pressure_drop": lambda: command_oil_pressure_response(),
     "cooling_failure": lambda: command_throttle_override(1300),
     "valve_wear": lambda: command_throttle_override(1450),
+    # New fault classes (see MODEL_REPORT.md for the physical reasoning
+    # behind each): ignition/fuel-related faults get a throttle reduction
+    # like valve_wear/cooling_failure; sensor_fault deliberately gets no
+    # engine command at all (see command_sensor_fault_response above).
+    "misfire": lambda: command_throttle_override(1350),
+    "injector_fault": lambda: command_throttle_override(1400),
+    "combustion_instability": lambda: command_throttle_override(1350),
+    "sensor_fault": lambda: command_sensor_fault_response(),
 }
 
 
