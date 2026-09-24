@@ -1,7 +1,10 @@
 import { FAULT_LABELS } from './DiagnosisPanel';
 
 export default function FaultControls({ activeFault, onInjectFault, onClearFault }) {
-  const faults = ['oil_pressure_drop', 'cooling_failure', 'valve_wear'];
+  const faults = [
+    'oil_pressure_drop', 'cooling_failure', 'valve_wear',
+    'misfire', 'injector_fault', 'combustion_instability', 'sensor_fault',
+  ];
 
   return (
     <div>

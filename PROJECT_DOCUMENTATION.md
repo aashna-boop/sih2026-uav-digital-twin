@@ -11,8 +11,12 @@ up-to-date picture of everything that's been built.*
 Imagine a drone (a MALE UAV — a military-grade long-endurance drone) with a
 piston engine, like a small motorcycle engine, keeping it in the air for
 hours. If something starts going wrong with that engine mid-flight — oil
-pressure drops, it overheats, a valve wears out — you want to know *before*
-it fails, not after.
+pressure drops, it overheats, a valve wears out, a cylinder starts
+misfiring, a fuel injector starts dribbling, combustion turns rough, or even
+a sensor itself starts lying — you want to know *before* it fails, not
+after. DRDO's problem statement (section C, "Fault Detection & Predictive
+Analytics") names all of these explicitly; this project now detects all of
+them, not just the original three.
 
 This project builds a system that:
 1. Watches the engine's sensors in real time
@@ -67,23 +71,30 @@ model from step 1, generates one run's full sensor telemetry:
 - Adds sensor noise, moderately increased over what was actually measured
   on the original recorded flight (reflecting that a single clean flight
   understates real fleet sensor variability)
-- Can inject one of three faults — valve wear, cooling failure, oil
-  pressure drop — each with a randomized severity and onset point, ramping
-  in gradually rather than switching on abruptly, with a mild stochastic
-  (not perfectly straight-line) progression
+- Can inject one of seven faults — valve wear, cooling failure, oil pressure
+  drop, misfire, injector fault, combustion instability, or sensor fault —
+  each with a randomized severity and onset point. The original three ramp
+  in as a gradual offset from the healthy target; the four newer ones each
+  needed their own mechanism instead (see `MODEL_REPORT.md` for the full
+  physical reasoning): misfire is scheduled short, complete-combustion-loss
+  events whose frequency and size both grow with severity; injector fault
+  adds an irregular fuel-flow wobble on top of a rich-mixture bias;
+  combustion instability inflates sensor *noise* rather than shifting the
+  mean; sensor fault corrupts one randomly chosen sensor channel's *reported
+  reading* only, leaving the engine itself genuinely healthy
 - Can also generate a "near-miss" healthy run: a genuine high-load/hot-day
   excursion with no fault at all, so a transient elevated reading isn't by
   itself proof of a fault
 
 ### Step 3 — `generate_batch.py`
-Calls the simulator many times with randomized parameters — 69 runs across
-4 fault classes (including near-miss healthy runs), each a genuinely
-different flight rather than the same trajectory relabeled — and writes
-each run to its own CSV under `data/runs/`.
+Calls the simulator many times with randomized parameters — 73 runs across
+8 classes (7 faults + healthy, including near-miss healthy runs), each a
+genuinely different flight rather than the same trajectory relabeled — and
+writes each run to its own CSV under `data/runs/`.
 
 ### Step 4 — `combine_datasets.py`
 Merges every run CSV in `data/runs/` into one master file —
-`engine_master_dataset.csv`, ~155,000 rows across 69 runs — which everything
+`engine_master_dataset.csv`, ~164,000 rows across 73 runs — which everything
 else in the project is built on.
 
 **Why this matters**: this means the "expected" sensor values used
@@ -114,7 +125,7 @@ Three separate models were trained:
 
 | Model | Question it answers |
 |---|---|
-| Fault classifier | "Which fault is this — healthy, valve wear, cooling failure, or oil pressure drop?" |
+| Fault classifier | "Which fault is this — healthy, valve wear, cooling failure, oil pressure drop, misfire, injector fault, combustion instability, or sensor fault?" |
 | Severity model | "How bad is it right now, 0 to 1?" |
 | Remaining-life model | "Roughly how much time is left before this gets critical?" |
 
@@ -122,24 +133,37 @@ Three separate models were trained:
 We tested it honestly: trained only on the **first 75% of each flight**,
 tested on the **last 25%** — a part of the flight the model never saw,
 where the fault is further along. That's a fair test of real learning, not
-memorization. With 69 independent runs now (instead of 1 per class), this
-also means the model has to have learned a fault signature that holds up
-across many different flights, ambient conditions and severity levels, not
-just one specific fault trajectory.
+memorization. With 73 independent runs across all 8 classes, this also
+means the model has to have learned a fault signature that holds up across
+many different flights, ambient conditions and severity levels, not just
+one specific fault trajectory.
 
-### Results, explained
-- **Which fault it is: 93.4% correct** on unseen data. (An earlier version
-  of this dataset — one flight per fault class, one fixed severity, no
-  randomization — scored a flat 100%. That wasn't a better model; it was a
-  much easier, less realistic test. Once the dataset had many independently
-  varied flights, correctly-labeled pre-onset segments, and realistic sensor
-  noise, 93.4% is what a genuinely rigorous held-out evaluation gives.)
-  Almost all of the remaining errors are right at a fault's onset — the
-  genuinely ambiguous moment where a real detector *should* sometimes be
-  uncertain — while well-progressed faults are caught 97–99% of the time.
-- **How severe it is: R² ≈ 0.80.** A genuinely harder, continuous problem,
-  solved well — real signal, with expected room to improve further.
-- **Remaining life estimate: same R² ≈ 0.80.** Same honest story.
+### Results, explained — now with 4 more, genuinely harder, fault classes
+- **Which fault it is: 66.1% correct overall** across all 8 classes (down
+  from 93.4% on the original 4-class problem, reported honestly rather than
+  only showing the easier number). The original 3 fault classes are
+  essentially untouched by adding 4 more — `cooling_failure`,
+  `oil_pressure_drop` and `valve_wear` all still sit at 97–100% recall.
+  **All of the accuracy drop is concentrated in the 4 new classes**, and it
+  was expected: `misfire`, `combustion_instability` and one sub-mode of
+  `sensor_fault` were deliberately built to be physically hard to catch
+  using only *mean* residual features (see `MODEL_REPORT.md` for the full,
+  honest breakdown, including exactly which classes are hardest and why).
+  `injector_fault`, which we deliberately gave a clean directional signal
+  (fuel up, EGT *down* — the opposite direction from valve wear), is caught
+  correctly 59% of the time — proof the approach works when a fault has a
+  genuine mean-residual signature, and a useful contrast with the classes
+  that don't.
+- **How severe it is: this has gotten meaningfully worse with 8 classes**
+  (overall R² collapsed to 0.02, from 0.80 on the 3-fault version) — see
+  `MODEL_REPORT.md`'s "Severity/RUL regression has effectively collapsed"
+  section for the full explanation and per-class numbers. Short version: one
+  regressor predicting a single 0–1 "severity" from 7 mean-residual features
+  no longer works well once the fault classes stop sharing a comparable
+  physical meaning of "severity" — this is real, useful information about
+  where the current design breaks, not something we're hiding.
+- **Remaining life estimate: same story as severity** (they're the same
+  number under the hood — `rul_frac` is defined as `1 − fault_severity`).
 
 ### What "SHAP" is
 A way of asking the model "why did you decide that?" and getting a real,
@@ -241,35 +265,48 @@ rc 2 1500      (levels off once climbing)
 
 ## 7. Honest limitations
 
-- **All 69 runs are synthetic (physics-simulated), not independent real
+- **All 73 runs are synthetic (physics-simulated), not independent real
   SITL flights** — the flight-profile *shapes* (short hop, long cruise,
   climb-cruise-descent, variable-load) are hand-designed archetypes with
   randomized duration/throttle history, fit to resemble the one real
-  recorded flight this project started from, not 69 genuinely separate
+  recorded flight this project started from, not 73 genuinely separate
   ArduPilot missions. Real independent flights per fault type would be a
   stronger validation than this project currently has time for.
-- **Only 3 fault types are modeled** (valve_wear, cooling_failure,
-  oil_pressure_drop) — ignition_degradation and bearing_wear are not in this
-  dataset or these models.
-- **`healthy` recall is the lowest of the four classes (0.83)** — the model
-  is somewhat more likely to flag a genuinely healthy reading as an
-  early-stage fault than the reverse. A defensible, safety-conservative
-  failure mode (false alarms cost less than missed faults), but worth
-  naming rather than hiding.
+- **`combustion_instability` and the "noisy" sub-mode of `sensor_fault` are,
+  on the current feature set, closer to "mostly not detected" than
+  "detected imperfectly"** (25% and 16% recall respectively, both mostly
+  confused with "healthy," not with each other). Both were deliberately
+  built to manifest as increased sensor-reading *variance* rather than a
+  mean shift, and this project's features are a smoothed *mean* residual
+  only — there is no variance/spectral feature in the model. This is a
+  genuine limitation of the current feature set, not a training or
+  labeling bug; see `MODEL_REPORT.md` for the full analysis.
+- **Severity/RUL should not be presented as reliable across all 8 classes.**
+  It's still meaningful for `cooling_failure`/`oil_pressure_drop`/
+  `valve_wear`; pooling one 0–1 regression target across all 7 fault
+  mechanisms broke down once they stopped sharing a comparable physical
+  notion of "severity" (see `MODEL_REPORT.md`).
+- **`healthy` recall (0.77) is the lowest of the 8 classes**, and dropped
+  further from the 3-fault version's 0.83 — largely because misfire/
+  instability/noisy-sensor-fault rows that the model can't confidently place
+  elsewhere often land on "healthy" instead. Still a safety-conservative
+  direction to be wrong in one sense (no false engine-fault alarm), but a
+  concerning one in another (a real developing fault reads as nothing
+  wrong) — worth naming plainly rather than only citing the aggregate
+  accuracy number.
 - **The live version depends on a working SITL connection** — if SITL
   isn't running or reachable on the expected port, the dashboard will show
   a "not connected" state rather than data
 - **No unknown-fault fallback** — right now, the model always picks one of
-  its four known classes, even for a fault type it's never seen; it can't
+  its eight known classes, even for a fault type it's never seen; it can't
   currently say "I don't recognize this"
 - **The live dashboard's alert thresholds have not been rechecked against
   this retrained model.** They were previously hand-calibrated (0.12/0.25)
-  to the old model's narrow observed severity output (capped ~0.32–0.35).
-  This model's severity range is different (randomized 0.2–0.9 severities
-  across runs), so those threshold constants are now almost certainly
-  stale — `app.py`/`app_live.py`/`live_engine.py` were not touched by this
-  update. Re-run a few fault scenarios through the live dashboard and
-  re-check the threshold constants before presenting.
+  to an earlier model's narrower observed severity output, and flagged as
+  likely stale even before this revision. This revision doesn't resolve
+  that, and — per the point above — severity itself is now only reliable
+  for 3 of 8 classes regardless of where the threshold ends up. See
+  `MODEL_REPORT.md` for the exact locations of these constants.
 
 ---
 
@@ -281,7 +318,7 @@ rc 2 1500      (levels off once climbing)
 | `engine_physics_model.py` | The physics engine simulator + fault injection for one run |
 | `generate_batch.py` | Calls the simulator many times with randomized severity/onset/ambient/archetype to build a full batch of runs |
 | `combine_datasets.py` | Merges all the individual run CSVs (`data/runs/*.csv`) into `engine_master_dataset.csv` |
-| `engine_master_dataset.csv` | The full labeled dataset everything is trained on (69 runs, ~155,000 rows) |
+| `engine_master_dataset.csv` | The full labeled dataset everything is trained on (73 runs, ~164,000 rows, 8 classes) |
 | `train_model.py` | Trains the three AI models from that dataset |
 | `model_fault_classifier.joblib` | Trained "which fault is it" model |
 | `model_severity_regressor.joblib` | Trained "how severe is it" model |
@@ -294,6 +331,9 @@ rc 2 1500      (levels off once climbing)
 | `static/index.html` | The dashboard webpage — shared by both backends |
 | `requirements.txt` | List of Python packages needed to run everything |
 | `MODEL_REPORT.md` | Technical write-up of the model for anyone wanting full detail |
+| `RESEARCH_GROUNDING.md` | How this project's approach connects to prior published work (NASA C-MAPSS methodology, physics-informed/digital-twin fault diagnosis) |
+| `DEPLOYMENT_ROADMAP.md` | Honest current-state-to-deployment plan: what's built vs. aspirational, phased path to real hardware |
+| `FINAL_PROJECT_REPORT.md` | The single up-to-date synthesis of the whole project — read this first if you only read one document |
 
 ---
 
