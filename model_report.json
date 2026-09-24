@@ -1,8 +1,12 @@
 {
   "classes": [
+    "combustion_instability",
     "cooling_failure",
     "healthy",
+    "injector_fault",
+    "misfire",
     "oil_pressure_drop",
+    "sensor_fault",
     "valve_wear"
   ],
   "features": [
@@ -15,189 +19,377 @@
     "vibration_resid_smooth"
   ],
   "smooth_window_sec": 2.5,
-  "train_rows": 115862,
-  "test_rows": 38749,
-  "n_runs": 69,
+  "train_rows": 122657,
+  "test_rows": 41022,
+  "n_runs": 73,
   "split_methodology": "chronological per run_id: first 75% train, last 25% test",
   "train_class_reweight": {
-    "healthy": 0.5049094692749165,
-    "cooling_failure": 1.8484070851931427,
-    "valve_wear": 2.0230746793163683,
-    "oil_pressure_drop": 2.2110297935469108
+    "combustion_instability": 2.2465975975804,
+    "cooling_failure": 2.302847466528444,
+    "healthy": 0.38973280319854964,
+    "injector_fault": 1.833325938963831,
+    "misfire": 2.0561608265410056,
+    "oil_pressure_drop": 1.7870707860681163,
+    "sensor_fault": 1.5839994548281289,
+    "valve_wear": 1.7442149408781626
   },
-  "classification_accuracy": 0.9342950785826731,
+  "classification_accuracy": 0.6608892789235045,
   "classification_report": {
+    "combustion_instability": {
+      "precision": 0.6535836177474402,
+      "recall": 0.2526385224274406,
+      "f1-score": 0.3644148430066603,
+      "support": 4548.0
+    },
     "cooling_failure": {
-      "precision": 0.9066776417326885,
-      "recall": 0.9766153164136097,
-      "f1-score": 0.9403478817628855,
-      "support": 9023.0
+      "precision": 0.8544723618090452,
+      "recall": 0.9683371298405467,
+      "f1-score": 0.9078483715963694,
+      "support": 4390.0
     },
     "healthy": {
-      "precision": 0.9761819803746655,
-      "recall": 0.8337523809523809,
-      "f1-score": 0.8993630573248408,
-      "support": 13125.0
+      "precision": 0.5316001149095088,
+      "recall": 0.773943956503555,
+      "f1-score": 0.6302792915531336,
+      "support": 9564.0
+    },
+    "injector_fault": {
+      "precision": 0.7327848872638635,
+      "recall": 0.5913449717236292,
+      "f1-score": 0.6545108177983399,
+      "support": 4067.0
+    },
+    "misfire": {
+      "precision": 0.5703734099302421,
+      "recall": 0.27872468417886503,
+      "f1-score": 0.3744612068965517,
+      "support": 4987.0
     },
     "oil_pressure_drop": {
-      "precision": 0.9214394919440198,
-      "recall": 0.9883940961271603,
-      "f1-score": 0.9537431527693244,
-      "support": 7927.0
+      "precision": 0.8351771985749109,
+      "recall": 0.9950848972296693,
+      "f1-score": 0.9081455805892548,
+      "support": 4476.0
+    },
+    "sensor_fault": {
+      "precision": 0.5024595924104006,
+      "recall": 0.3333333333333333,
+      "f1-score": 0.4007847533632287,
+      "support": 4290.0
     },
     "valve_wear": {
-      "precision": 0.9244391971664699,
-      "recall": 0.9929674890477288,
-      "f1-score": 0.9574787393696849,
-      "support": 8674.0
+      "precision": 0.7159424771918973,
+      "recall": 0.9851063829787234,
+      "f1-score": 0.8292289782394555,
+      "support": 4700.0
     },
-    "accuracy": 0.9342950785826731,
+    "accuracy": 0.6608892789235045,
     "macro avg": {
-      "precision": 0.9321845778044608,
-      "recall": 0.9479323206352199,
-      "f1-score": 0.937733207806684,
-      "support": 38749.0
+      "precision": 0.6745492074796636,
+      "recall": 0.6473142347769703,
+      "f1-score": 0.6337092303803742,
+      "support": 41022.0
     },
     "weighted avg": {
-      "precision": 0.9372158585417363,
-      "recall": 0.9342950785826731,
-      "f1-score": 0.9330406364507505,
-      "support": 38749.0
+      "precision": 0.6555330853624811,
+      "recall": 0.6608892789235045,
+      "f1-score": 0.6309234104838055,
+      "support": 41022.0
     }
   },
   "confusion_matrix": [
     [
-      8812,
-      167,
-      9,
-      35
+      1149,
+      88,
+      1952,
+      108,
+      421,
+      38,
+      354,
+      438
     ],
     [
-      875,
-      10943,
-      649,
-      658
-    ],
-    [
-      26,
-      55,
-      7835,
-      11
-    ],
-    [
-      6,
-      45,
       10,
-      8613
+      4251,
+      82,
+      11,
+      11,
+      11,
+      5,
+      9
+    ],
+    [
+      298,
+      315,
+      7402,
+      430,
+      454,
+      171,
+      207,
+      287
+    ],
+    [
+      33,
+      80,
+      927,
+      2405,
+      4,
+      44,
+      562,
+      12
+    ],
+    [
+      154,
+      182,
+      2191,
+      86,
+      1390,
+      112,
+      277,
+      595
+    ],
+    [
+      1,
+      5,
+      11,
+      0,
+      4,
+      4454,
+      1,
+      0
+    ],
+    [
+      108,
+      52,
+      1333,
+      242,
+      126,
+      503,
+      1430,
+      496
+    ],
+    [
+      5,
+      2,
+      26,
+      0,
+      27,
+      0,
+      10,
+      4630
     ]
   ],
-  "severity_mae": 0.07698677028253069,
-  "severity_r2": 0.7988709947781375,
-  "rul_mae": 0.07698676661724402,
-  "rul_r2": 0.7988710128881424,
+  "severity_mae": 0.18111836383080496,
+  "severity_r2": 0.019399161195460257,
+  "rul_mae": 0.18111836710017354,
+  "rul_r2": 0.01939918054380041,
   "shap_top_features_per_class": {
-    "cooling_failure": [
-      {
-        "feature": "cht_c_resid_smooth",
-        "mean_abs_shap": 1.1008195877075195
-      },
-      {
-        "feature": "oil_temp_c_resid_smooth",
-        "mean_abs_shap": 0.7920424938201904
-      },
+    "combustion_instability": [
       {
         "feature": "egt_c_resid_smooth",
-        "mean_abs_shap": 0.7227197885513306
+        "mean_abs_shap": 0.6048949956893921
       },
       {
         "feature": "oil_pressure_bar_resid_smooth",
-        "mean_abs_shap": 0.6525652408599854
+        "mean_abs_shap": 0.439072847366333
       },
       {
-        "feature": "fuel_flow_lph_resid_smooth",
-        "mean_abs_shap": 0.11036629229784012
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.27425849437713623
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.1846744567155838
       },
       {
         "feature": "rpm_resid_smooth",
-        "mean_abs_shap": 0.10557718575000763
+        "mean_abs_shap": 0.17111176252365112
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.11776100844144821
+      }
+    ],
+    "cooling_failure": [
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.9977168440818787
+      },
+      {
+        "feature": "egt_c_resid_smooth",
+        "mean_abs_shap": 0.6949077844619751
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.60428386926651
+      },
+      {
+        "feature": "oil_pressure_bar_resid_smooth",
+        "mean_abs_shap": 0.3628539443016052
+      },
+      {
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.15875378251075745
+      },
+      {
+        "feature": "rpm_resid_smooth",
+        "mean_abs_shap": 0.11387194693088531
       }
     ],
     "healthy": [
       {
         "feature": "egt_c_resid_smooth",
-        "mean_abs_shap": 0.8559800386428833
+        "mean_abs_shap": 0.7678845524787903
       },
       {
         "feature": "oil_pressure_bar_resid_smooth",
-        "mean_abs_shap": 0.7991874814033508
-      },
-      {
-        "feature": "cht_c_resid_smooth",
-        "mean_abs_shap": 0.584036111831665
-      },
-      {
-        "feature": "oil_temp_c_resid_smooth",
-        "mean_abs_shap": 0.3384382128715515
+        "mean_abs_shap": 0.5166229009628296
       },
       {
         "feature": "vibration_resid_smooth",
-        "mean_abs_shap": 0.06930120289325714
+        "mean_abs_shap": 0.21943695843219757
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.14179332554340363
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.1259842813014984
       },
       {
         "feature": "rpm_resid_smooth",
-        "mean_abs_shap": 0.051097091287374496
+        "mean_abs_shap": 0.0646473690867424
+      }
+    ],
+    "injector_fault": [
+      {
+        "feature": "egt_c_resid_smooth",
+        "mean_abs_shap": 1.2651386260986328
+      },
+      {
+        "feature": "oil_pressure_bar_resid_smooth",
+        "mean_abs_shap": 0.3485192060470581
+      },
+      {
+        "feature": "fuel_flow_lph_resid_smooth",
+        "mean_abs_shap": 0.28860223293304443
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.18592244386672974
+      },
+      {
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.16000400483608246
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.11418911069631577
+      }
+    ],
+    "misfire": [
+      {
+        "feature": "egt_c_resid_smooth",
+        "mean_abs_shap": 0.6391316652297974
+      },
+      {
+        "feature": "oil_pressure_bar_resid_smooth",
+        "mean_abs_shap": 0.3717047870159149
+      },
+      {
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.2874795198440552
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.20330823957920074
+      },
+      {
+        "feature": "rpm_resid_smooth",
+        "mean_abs_shap": 0.1377476304769516
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.13290397822856903
       }
     ],
     "oil_pressure_drop": [
       {
         "feature": "oil_pressure_bar_resid_smooth",
-        "mean_abs_shap": 1.9073764085769653
-      },
-      {
-        "feature": "cht_c_resid_smooth",
-        "mean_abs_shap": 0.6868916153907776
+        "mean_abs_shap": 2.03055477142334
       },
       {
         "feature": "egt_c_resid_smooth",
-        "mean_abs_shap": 0.6086754202842712
-      },
-      {
-        "feature": "oil_temp_c_resid_smooth",
-        "mean_abs_shap": 0.18617790937423706
-      },
-      {
-        "feature": "rpm_resid_smooth",
-        "mean_abs_shap": 0.1195245161652565
+        "mean_abs_shap": 0.5743603706359863
       },
       {
         "feature": "vibration_resid_smooth",
-        "mean_abs_shap": 0.08835069090127945
+        "mean_abs_shap": 0.19976267218589783
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.15145742893218994
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.14583832025527954
+      },
+      {
+        "feature": "fuel_flow_lph_resid_smooth",
+        "mean_abs_shap": 0.1057058572769165
+      }
+    ],
+    "sensor_fault": [
+      {
+        "feature": "fuel_flow_lph_resid_smooth",
+        "mean_abs_shap": 0.3803721070289612
+      },
+      {
+        "feature": "egt_c_resid_smooth",
+        "mean_abs_shap": 0.35710036754608154
+      },
+      {
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.28758955001831055
+      },
+      {
+        "feature": "oil_pressure_bar_resid_smooth",
+        "mean_abs_shap": 0.2426203340291977
+      },
+      {
+        "feature": "rpm_resid_smooth",
+        "mean_abs_shap": 0.1206742450594902
+      },
+      {
+        "feature": "oil_temp_c_resid_smooth",
+        "mean_abs_shap": 0.11155746877193451
       }
     ],
     "valve_wear": [
       {
         "feature": "egt_c_resid_smooth",
-        "mean_abs_shap": 1.6471002101898193
+        "mean_abs_shap": 1.5363717079162598
       },
       {
         "feature": "oil_pressure_bar_resid_smooth",
-        "mean_abs_shap": 0.7379319667816162
-      },
-      {
-        "feature": "oil_temp_c_resid_smooth",
-        "mean_abs_shap": 0.35292384028434753
-      },
-      {
-        "feature": "cht_c_resid_smooth",
-        "mean_abs_shap": 0.3337356150150299
-      },
-      {
-        "feature": "fuel_flow_lph_resid_smooth",
-        "mean_abs_shap": 0.1885470598936081
+        "mean_abs_shap": 0.3663228154182434
       },
       {
         "feature": "rpm_resid_smooth",
-        "mean_abs_shap": 0.18628573417663574
+        "mean_abs_shap": 0.26021307706832886
+      },
+      {
+        "feature": "fuel_flow_lph_resid_smooth",
+        "mean_abs_shap": 0.20031829178333282
+      },
+      {
+        "feature": "vibration_resid_smooth",
+        "mean_abs_shap": 0.18227854371070862
+      },
+      {
+        "feature": "cht_c_resid_smooth",
+        "mean_abs_shap": 0.13963541388511658
       }
     ]
   }

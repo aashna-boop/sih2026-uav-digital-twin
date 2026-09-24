@@ -34,6 +34,17 @@ import random
 
 from engine_physics_model import ARCHETYPES, FAULT_TYPES, generate_run, write_run_csv
 
+# Only the original 4 "generic flight" archetypes are used for the labeled
+# training dataset. engine_physics_model.ARCHETYPES also contains 4 Section-E
+# environmental-scenario archetypes (high_altitude_cruise, hot_weather_ops,
+# rapid_throttle_transition, endurance_mission) added later for the live demo's
+# scenario picker -- those are meant to showcase one specific environmental
+# condition each (e.g. endurance_mission runs 1200-1800s, ~4x a normal run),
+# not to be sampled generically into the fault/healthy training set, where
+# they would silently balloon dataset size and skew flight-profile balance
+# per class. engine_master_dataset.csv has always been built from just these 4.
+TRAINING_ARCHETYPES = ["short_hop", "long_cruise", "climb_cruise_descent", "variable_load"]
+
 
 def build_plan(master_seed: int, n_healthy_normal: int, n_healthy_near_miss: int, n_per_fault: int):
     rng = random.Random(master_seed)
@@ -47,7 +58,7 @@ def build_plan(master_seed: int, n_healthy_normal: int, n_healthy_near_miss: int
             ambient_offset_c=rng.uniform(-10, 30),
             seed=master_seed * 1000 + counter,
             run_id=f"healthy_{counter:03d}",
-            archetype=rng.choice(list(ARCHETYPES)),
+            archetype=rng.choice(TRAINING_ARCHETYPES),
             near_miss=False,
         ))
 
@@ -72,7 +83,7 @@ def build_plan(master_seed: int, n_healthy_normal: int, n_healthy_near_miss: int
                 ambient_offset_c=rng.uniform(-10, 30),
                 seed=master_seed * 1000 + counter,
                 run_id=f"{fault}_{counter:03d}",
-                archetype=rng.choice(list(ARCHETYPES)),
+                archetype=rng.choice(TRAINING_ARCHETYPES),
                 near_miss=False,
             ))
 
