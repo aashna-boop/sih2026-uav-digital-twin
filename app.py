@@ -70,7 +70,10 @@ raw = pd.read_csv(DATA_PATH)
 if "ambient_offset_c" not in raw.columns:
     raw["ambient_offset_c"] = 0.0
 
-FAULT_KEYS = ["healthy", "valve_wear", "cooling_failure", "oil_pressure_drop"]
+FAULT_KEYS = [
+    "healthy", "valve_wear", "cooling_failure", "oil_pressure_drop",
+    "misfire", "injector_fault", "combustion_instability", "sensor_fault",
+]
 REPLAY_TARGET_SEVERITY = 0.6   # same as live_engine's injected target severity
 REPLAY_TARGET_DURATION_S = 600.0
 

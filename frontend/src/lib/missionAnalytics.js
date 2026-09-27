@@ -33,6 +33,10 @@ export const FAULT_LABELS = {
   valve_wear: 'Valve wear',
   cooling_failure: 'Cooling failure',
   oil_pressure_drop: 'Oil pressure drop',
+  misfire: 'Misfire',
+  injector_fault: 'Injector fault',
+  combustion_instability: 'Combustion instability',
+  sensor_fault: 'Sensor fault',
 };
 
 const SENSOR_LABELS = {
@@ -175,6 +179,71 @@ export const ADVISORIES = {
       'Ground engine after landing: compression test and valve/seat inspection before further flight.',
     ],
   },
+  misfire: {
+    system: 'Ignition / combustion (misfire)',
+    early: [
+      'Early intermittent RPM/vibration deviation with periodic EGT spikes. Note for post-flight inspection.',
+      'Log whether the deviation correlates with a specific throttle setting or spans the power range.',
+    ],
+    monitor: [
+      'Inspect ignition system before next flight: spark plugs, leads, magneto timing.',
+      'Check for intermittent fuel starvation (filter, pump pressure) as a contributing cause.',
+      'Reduce high-power operation; a sustained misfire under load risks a hot exhaust event.',
+    ],
+    critical: [
+      'Recommend return to base; avoid full-power settings where a skipped cylinder is most disruptive.',
+      'Ground engine after landing: full ignition and fuel-delivery inspection before further flight.',
+      'Borescope-inspect the affected cylinder for plug fouling or valve damage before release.',
+    ],
+  },
+  injector_fault: {
+    system: 'Fuel injection',
+    early: [
+      'Early irregular fuel-flow deviation from twin, trending rich (lower EGT than expected). Note for post-flight inspection.',
+      'Watch for a widening fuel-flow oscillation rather than a single-direction trend.',
+    ],
+    monitor: [
+      "Inspect the injector(s) before next flight for dribble/leak-past; bench-test flow if available.",
+      'Check the fuel pressure regulator and mixture control for a stuck-rich condition.',
+      'Trend fuel efficiency index -- a rich-running injector shows as a sustained efficiency loss.',
+    ],
+    critical: [
+      'Recommend return to base; a badly over-fueling injector risks plug fouling and rough running.',
+      'Ground engine after landing: injector replacement/overhaul and fuel-system inspection before further flight.',
+    ],
+  },
+  combustion_instability: {
+    system: 'Combustion stability',
+    early: [
+      'Early erratic vibration/RPM variance with no clear directional trend. Note for post-flight inspection.',
+      'Distinguish from misfire: combustion is present but irregular, not fully dropping out.',
+    ],
+    monitor: [
+      'Inspect mixture distribution, air filter and intake for uneven cylinder-to-cylinder combustion.',
+      'Check engine mounts and propeller balance -- mechanical vibration sources can present similarly.',
+      'Increase monitoring frequency: this class is harder for the model to catch early (see MODEL_REPORT.md).',
+    ],
+    critical: [
+      'Recommend reduced throttle and return to base; sustained rough running accelerates mechanical wear.',
+      'Ground engine after landing: full combustion-system inspection (mixture, timing, compression) before release.',
+    ],
+  },
+  sensor_fault: {
+    system: 'Sensor / instrumentation',
+    early: [
+      'Early single-channel reading deviation with no corresponding change on related channels. Note for post-flight inspection.',
+      'Cross-check the flagged channel against a second independent indication before acting on it.',
+    ],
+    monitor: [
+      'Do not act on the flagged channel alone; verify with a backup gauge/sensor or a ground check.',
+      'Inspect the sensor, its wiring harness and connector for damage, corrosion or a loose pin.',
+      'This is a suspected SENSOR fault, not an engine fault -- do not schedule engine teardown from this alone.',
+    ],
+    critical: [
+      'Recommend return to base if the flagged channel is safety-relevant and cannot be cross-verified in flight.',
+      'Ground the affected sensor circuit after landing: recalibrate or replace before trusting that channel again.',
+    ],
+  },
 };
 
 export function severityLevel(fault, sev) {
@@ -196,10 +265,14 @@ export function sensorEvidence(shap) {
   if (!shap) return [];
   const out = [];
   for (const c of shap) {
-    const base = c.feature.replace(/_resid_pct$|_resid$/, '');
+    // NOTE: features are `{sensor}_resid_smooth` since the 7-feature model
+    // retrain -- this used to strip `_resid`/`_resid_pct`, a leftover from
+    // the old 25-feature model, which meant this always returned [] (no
+    // suffix ever matched) and the "Model evidence" line in the maintenance
+    // advisory panel was silently empty. Fixed here.
+    const base = c.feature.replace(/_resid_smooth$/, '');
     if (!SENSOR_LABELS[base] || c.value <= 0) continue;
-    const label = SENSOR_LABELS[base] + (c.feature.endsWith('_resid_pct') ? ' deviation (%)' : c.feature.endsWith('_resid') ? ' deviation' : '');
-    out.push({ feature: c.feature, label, value: c.value });
+    out.push({ feature: c.feature, label: SENSOR_LABELS[base] + ' deviation', value: c.value });
   }
   return out.slice(0, 3);
 }

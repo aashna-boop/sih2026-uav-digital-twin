@@ -1,12 +1,6 @@
-const FAULT_LABELS = {
-  healthy: 'Healthy',
-  valve_wear: 'Valve Wear',
-  cooling_failure: 'Cooling Failure',
-  oil_pressure_drop: 'Oil Pressure Drop',
-};
-
-// Single source of truth for these lives in lib/missionAnalytics.js
-import { SEV_MONITOR, SEV_CRITICAL } from '../lib/missionAnalytics';
+// Single source of truth for these lives in lib/missionAnalytics.js (also
+// keeps FAULT_LABELS in sync automatically as fault classes are added).
+import { SEV_MONITOR, SEV_CRITICAL, FAULT_LABELS } from '../lib/missionAnalytics';
 
 export default function DiagnosisPanel({ prediction, trueFault }) {
   if (!prediction) {

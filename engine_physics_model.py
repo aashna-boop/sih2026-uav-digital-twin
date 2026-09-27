@@ -37,6 +37,56 @@ Fault magnitudes (at severity=1.0, i.e. fully progressed) are derived from
 the deltas actually observed in the original single-severity dataset,
 linearly extrapolated from their measured (onset_frac, severity) pair to a
 severity of 1.0 -- see the FAULT_MODEL comments for the source numbers.
+
+Extended fault set (DRDO PS section C: "Fault Detection & Predictive
+Analytics" names sensor drift/failure, misfire, injector abnormalities and
+combustion instability explicitly; the original 3 classes did not cover
+them). Four new fault types, added below with the same onset+severity-ramp
+mechanic as the original three, but each needs a distinct *mechanism*, not
+just a new set of FAULT_MODEL numbers, because none of them is a simple
+steady offset from the healthy target:
+
+  - misfire: intermittent, COMPLETE loss of one combustion event, not a
+    continuous degradation. Modeled as a scheduled sequence of short
+    (MISFIRE_EVENT_DUR_S) events whose *frequency* and *per-event
+    amplitude* both increase with severity -- physically, a worsening
+    misfire skips more often and each skip is a bigger torque loss.
+    Applied directly to the post-noise reading (not the lagged target)
+    since a misfire event is a genuine mechanical/thermal impulse, not a
+    slow thermal-mass-limited change: RPM dips, vibration spikes, and EGT
+    rises transiently (unburnt fuel afterburning in the exhaust, a well
+    documented misfire symptom on real engines).
+  - injector_fault: fuel delivery INCONSISTENCY, not a clean bias. Modeled
+    as a static rich-mixture mean bias (FAULT_MODEL, below) plus a slow,
+    irregular random-walk oscillation added on top of the fuel_flow
+    target, so no two seconds of a demo look identical. The mean bias
+    deliberately moves EGT and RPM in the OPPOSITE direction from
+    valve_wear's (over-fueling runs cooler and rougher, not hotter and
+    leaner) -- see FAULT_MODEL comment.
+  - combustion_instability: erratic combustion "without a steady
+    wear-based cause" per the PS wording -- i.e. more VARIANCE, not a
+    dropped-out cylinder and not a directional trend. Modeled almost
+    entirely as a severity-scaled INFLATION of the sensor noise on
+    vibration/rpm/egt (see INSTABILITY_NOISE_MULT), with only a small
+    static mean bias. This is a deliberate, honest design choice: our
+    features are a *smoothed mean* residual (see train_model.py), which
+    is close to blind to pure variance. combustion_instability is
+    therefore expected to be the hardest of the 7 classes to separate
+    from healthy and from misfire -- see MODEL_REPORT.md for how that
+    played out.
+  - sensor_fault: NOT an engine fault -- the engine stays healthy; one
+    randomly chosen sensor channel starts lying (drift / flatline /
+    noisy, chosen once per run). This gets its own top-level fault_type
+    label rather than a flag alongside engine health, because (a) DRDO's
+    PS lists it as its own detectable failure mode, and (b) the correct
+    operator response is different (recalibrate/replace a sensor, not
+    inspect the engine) -- the same human-in-the-loop advisory framing
+    the rest of this project already uses. Applied AFTER the lag+noise
+    pipeline, directly to the reported reading only, since a bad sensor
+    has no thermal mass -- it just reports wrong, instantly. Its one
+    genuinely distinguishing structural feature vs. the engine faults:
+    it never touches more than one channel, where every engine fault here
+    has a multi-channel signature.
 """
 from __future__ import annotations
 
@@ -53,7 +103,10 @@ from digital_twin import (
     BATTERY_BASELINE_DRAW_A, BATTERY_LOAD_DRAW_A,
 )
 
-FAULT_TYPES = ("valve_wear", "cooling_failure", "oil_pressure_drop")
+FAULT_TYPES = (
+    "valve_wear", "cooling_failure", "oil_pressure_drop",
+    "misfire", "injector_fault", "combustion_instability", "sensor_fault",
+)
 
 # Sensor noise is scaled up moderately over what a single clean SITL/bench
 # flight showed, to reflect realistic fleet-level sensor variability
@@ -91,11 +144,56 @@ NOISE_SCALE = {
 #     increases boundary friction, which mildly raises oil temperature. Kept
 #     smaller than cooling_failure's effect on the same channel so the two
 #     faults overlap without being identical signatures.
+# injector_fault and combustion_instability get a static mean-bias entry
+# here too (on top of their own per-timestep mechanism below), so both
+# still flow through the one existing `target[chan] += delta*s_t` loop.
+# misfire and sensor_fault get no entry here (empty dict via .get() below)
+# -- neither one is a clean additive bias on the healthy target; both are
+# implemented as their own per-timestep blocks further down.
+#
+#   injector_fault (leaking/dribbling injector -> chronic over-fueling):
+#     richer-than-commanded mixture burns COOLER, not hotter, and less
+#     efficiently -- egt DOWN, rpm mildly down, fuel_flow up. This is the
+#     opposite EGT direction from valve_wear (which runs LEANER/hotter as
+#     compression leaks past worn valves), a deliberate, physically-real
+#     point of separation between the two classes.
+#   combustion_instability: kept deliberately small and directionless on
+#     rpm/vibration (see module docstring) -- only a mild general
+#     inefficiency bias on egt/fuel_flow, since "erratic... without a
+#     steady wear-based cause" should not itself look like a trend.
 FAULT_MODEL = {
     "cooling_failure": {"cht_c": 60.7, "oil_temp_c": 39.8, "vibration": 0.023},
     "oil_pressure_drop": {"oil_pressure_bar": -1.994, "vibration": 0.034, "oil_temp_c": 8.0},
     "valve_wear": {"rpm": -402.0, "egt_c": 118.0, "fuel_flow_lph": 2.08, "vibration": 0.056},
+    "injector_fault": {"fuel_flow_lph": 2.6, "egt_c": -70.0, "rpm": -120.0},
+    "combustion_instability": {"egt_c": 15.0, "fuel_flow_lph": 0.4},
 }
+
+# ── Extended-fault-set tuning constants (misfire / injector / instability / sensor_fault) ──
+MISFIRE_EVENT_DUR_S = 0.3          # duration of one complete-combustion-loss event
+MISFIRE_INTERVAL_RANGE_S = (7.0, 1.2)   # mean inter-event time at severity 0 -> severity 1
+MISFIRE_RPM_DIP = (300.0, 500.0)   # (base, +per-severity) rpm dip during an event
+MISFIRE_VIBRATION_SPIKE = (0.15, 0.35)
+MISFIRE_EGT_SPIKE = (40.0, 80.0)   # unburnt-fuel afterburn in the exhaust
+MISFIRE_FUEL_BUMP = (0.3, 0.6)
+
+INJECTOR_WALK_AMPLITUDE = 0.35     # per-second random-walk kick on fuel_flow target, scaled by severity
+INJECTOR_WALK_DECAY_S = 2.0        # OU-style decay constant back toward 0
+
+# At severity 1.0, vibration/rpm/egt noise std is multiplied by this factor.
+# vibration is hit hardest (that's the classic "rough running engine" tell);
+# rpm and egt less so, since some of their variance is masked by the
+# existing first-order lag.
+INSTABILITY_NOISE_MULT = {"vibration": 4.5, "rpm": 2.5, "egt_c": 1.6}
+
+# sensor_fault: how many multiples of that channel's OWN normal noise std
+# the drift/noisy corruption reaches at severity 1.0. Deliberately large
+# (>=6x) so a drifting/noisy sensor is not just "a bit more noise" but a
+# clearly anomalous reading -- the realistic signature of a sensor a
+# maintainer would actually flag, as opposed to a borderline judgment call.
+SENSOR_DRIFT_STD_MULT = 6.0
+SENSOR_NOISY_STD_MULT = 8.0
+SENSOR_FAULT_MODES = ("drift", "flatline", "noisy")
 
 DT = 0.25  # seconds/sample (4 Hz) -- ample for these seconds-to-minutes-scale dynamics
 
@@ -282,6 +380,20 @@ def generate_run(
 
     severity_jitter = 0.0
 
+    # ── Extended-fault-set per-run state ──
+    # sensor_fault: which channel lies, and how (chosen once per run, not
+    # per-timestep, since a real sensor doesn't switch failure modes mid-flight).
+    sf_channel = rng.choice(list(SENSORS))
+    sf_mode = rng.choice(SENSOR_FAULT_MODES)
+    sf_drift_dir = rng.choice([-1.0, 1.0])
+    sf_frozen_value = None
+    # injector_fault: slow OU-style random walk on top of the static fuel bias.
+    injector_walk = 0.0
+    # misfire: scheduled next-event time / current-event state.
+    misfire_next_event_t = None
+    misfire_event_until = -1.0
+    misfire_event_amp = 0.0
+
     for i in range(n_steps):
         t = i * DT
         frac = t / duration_sec
@@ -310,8 +422,32 @@ def generate_run(
         target = expected_sensors(load, ambient_offset_c, altitude_m)
 
         if fault_type != "healthy" and s_t > 0:
-            for chan, delta_at_1 in FAULT_MODEL[fault_type].items():
+            for chan, delta_at_1 in FAULT_MODEL.get(fault_type, {}).items():
                 target[chan] = target.get(chan, 0.0) + delta_at_1 * s_t
+
+            # injector_fault: irregular fuel-flow oscillation on top of the
+            # static rich-mixture bias above -- an OU-style random walk so
+            # the irregularity itself grows with severity, not just its bias.
+            if fault_type == "injector_fault":
+                injector_walk += (rng.uniform(-1, 1) * INJECTOR_WALK_AMPLITUDE * s_t
+                                   - injector_walk / INJECTOR_WALK_DECAY_S * DT)
+                target["fuel_flow_lph"] = target.get("fuel_flow_lph", 0.0) + injector_walk
+
+        # misfire: schedule/advance discrete combustion-loss events. Frequency
+        # AND per-event amplitude both scale with severity (see module
+        # docstring). Applied to `reading`, not `target`, below -- a misfire
+        # is a mechanical/thermal impulse, not something with thermal lag.
+        misfire_event_active = False
+        if fault_type == "misfire" and s_t > 0:
+            if misfire_next_event_t is None:
+                misfire_next_event_t = t + rng.uniform(1.0, 4.0)
+            if t >= misfire_next_event_t and t >= misfire_event_until:
+                misfire_event_until = t + MISFIRE_EVENT_DUR_S
+                misfire_event_amp = 0.6 + 0.4 * rng.random()
+                interval_mean = max(0.5, MISFIRE_INTERVAL_RANGE_S[0]
+                                     + (MISFIRE_INTERVAL_RANGE_S[1] - MISFIRE_INTERVAL_RANGE_S[0]) * s_t)
+                misfire_next_event_t = t + max(0.4, rng.gauss(interval_mean, interval_mean * 0.3))
+            misfire_event_active = t < misfire_event_until
 
         # first-order lag toward target, then noise
         reading = {}
@@ -319,12 +455,40 @@ def generate_run(
             tau = LAG_TAU[s]
             lagged[s] = lagged[s] + DT * (target[s] - lagged[s]) / max(tau, DT)
             noise_std = MEASURED_HEALTHY_NOISE_STD[s] * NOISE_SCALE.get(s, 1.4)
+            if fault_type == "combustion_instability" and s_t > 0:
+                # Erratic-but-present combustion: inflate variance rather than
+                # shift the mean (see module docstring on why this is the
+                # hardest class for a mean-residual-only classifier to catch).
+                noise_std *= 1.0 + (INSTABILITY_NOISE_MULT.get(s, 1.0) - 1.0) * s_t
             reading[s] = lagged[s] + rng.gauss(0, noise_std)
+
+        if misfire_event_active:
+            amp = misfire_event_amp
+            reading["rpm"] -= (MISFIRE_RPM_DIP[0] + MISFIRE_RPM_DIP[1] * s_t) * amp
+            reading["vibration"] += (MISFIRE_VIBRATION_SPIKE[0] + MISFIRE_VIBRATION_SPIKE[1] * s_t) * amp
+            reading["egt_c"] += (MISFIRE_EGT_SPIKE[0] + MISFIRE_EGT_SPIKE[1] * s_t) * amp
+            reading["fuel_flow_lph"] += (MISFIRE_FUEL_BUMP[0] + MISFIRE_FUEL_BUMP[1] * s_t) * amp
 
         reading["oil_pressure_bar"] = max(0.25, reading["oil_pressure_bar"])
         reading["rpm"] = max(300.0, reading["rpm"])
         reading["fuel_flow_lph"] = max(0.1, reading["fuel_flow_lph"])
         reading["vibration"] = max(0.05, reading["vibration"])
+
+        # sensor_fault: applied LAST, directly to the reported reading only
+        # (not target/lagged, which stay genuinely healthy -- the engine is
+        # fine, one sensor is lying). Deliberately not re-clamped afterward:
+        # an out-of-plausible-range reading is the realistic signature of a
+        # failed sensor, not something a healthy-engine clamp should hide.
+        if fault_type == "sensor_fault" and s_t > 0:
+            base_std = MEASURED_HEALTHY_NOISE_STD[sf_channel] * NOISE_SCALE.get(sf_channel, 1.4)
+            if sf_mode == "drift":
+                reading[sf_channel] += sf_drift_dir * SENSOR_DRIFT_STD_MULT * base_std * s_t
+            elif sf_mode == "flatline":
+                if sf_frozen_value is None:
+                    sf_frozen_value = reading[sf_channel]
+                reading[sf_channel] = sf_frozen_value
+            else:  # "noisy"
+                reading[sf_channel] += rng.gauss(0, SENSOR_NOISY_STD_MULT * base_std * s_t)
 
         roll = 3.0 * math.sin(t / 23.0) + rng.gauss(0, 0.8)
         pitch = 2.0 * math.sin(t / 31.0 + 1.0) + rng.gauss(0, 0.6)
@@ -394,6 +558,11 @@ def generate_run(
             "ambient_offset_c": ambient_offset_c,
             "archetype": archetype,
             "near_miss": int(bool(near_miss)),
+            # Diagnostic-only columns (not used as model features): which
+            # channel/mode a sensor_fault run picked, so per-subtype recall
+            # can be checked honestly in MODEL_REPORT.md. Blank otherwise.
+            "sensor_fault_channel": sf_channel if fault_type == "sensor_fault" else "",
+            "sensor_fault_mode": sf_mode if fault_type == "sensor_fault" else "",
         })
 
     return rows
@@ -406,6 +575,7 @@ FIELDNAMES = [
     "vibration", "battery_voltage_v", "battery_current_a", "battery_soc_pct",
     "fault_type", "fault_severity", "rul_frac", "run_id", "source_file",
     "ambient_offset_c", "archetype", "near_miss",
+    "sensor_fault_channel", "sensor_fault_mode",
 ]
 
 
