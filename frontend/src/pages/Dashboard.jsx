@@ -108,12 +108,26 @@ export default function Dashboard() {
   }, [send, addLog, newRun]);
 
   const handleClearFault = useCallback(() => {
+    // Distinguish "operator cleared an active fault" from "already healthy,
+    // clicked anyway" -- confirming a response never resolves the fault by
+    // itself (see MODEL_REPORT.md: the model has no "repaired" state), so
+    // this explicit event is the only place a run gets marked resolved.
+    const wasFaultActive = activeFault !== 'healthy';
+    const hadConfirmedAction = responseState === 'confirmed';
     setActiveFault('healthy');
     setResponseState('none');
     send({ action: 'clear_fault' });
-    newRun('healthy');
-    addLog('Now streaming: healthy run', 'ok', 0);
-  }, [send, addLog, newRun]);
+    if (wasFaultActive) {
+      const msg = hadConfirmedAction
+        ? 'Engine returned to healthy baseline (confirmed action taken, fault cleared by operator)'
+        : 'Engine returned to healthy baseline (fault cleared by operator)';
+      logEvent(msg); // log into the closing run's own report BEFORE archiving it
+      addLog(msg, 'ok', data?.t_sec || 0);
+    } else {
+      addLog('Now streaming: healthy run', 'ok', 0);
+    }
+    newRun('healthy'); // archive the (now-resolved) run and start a fresh one
+  }, [send, addLog, newRun, activeFault, responseState, logEvent, data]);
 
   const handleSelectScenario = useCallback((scenarioId) => {
     setActiveScenario(scenarioId);
