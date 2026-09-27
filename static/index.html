@@ -1053,11 +1053,25 @@ document.querySelectorAll('.fault-btn').forEach(btn=>{
   });
 });
 document.getElementById('clearFault').addEventListener('click', ()=>{
+  // Distinguish "operator cleared an active fault" from "already healthy,
+  // clicked anyway" -- confirming a response never resolves the fault by
+  // itself (see MODEL_REPORT.md: the model has no "repaired" state), so
+  // this explicit event is the only place a run gets marked resolved.
+  const wasFaultActive = document.querySelector('.fault-btn.active') != null;
+  const hadConfirmedAction = responseState === 'confirmed';
   document.querySelectorAll('.fault-btn').forEach(b=>b.classList.remove('active'));
   responseState='none'; hideBanner();
   ws.send(JSON.stringify({action:'clear_fault'}));
-  SF.newRun('healthy');
-  addLog('Now streaming: healthy run', 'ok', 0);
+  if (wasFaultActive) {
+    const msg = hadConfirmedAction
+      ? 'Engine returned to healthy baseline (confirmed action taken, fault cleared by operator)'
+      : 'Engine returned to healthy baseline (fault cleared by operator)';
+    SF.event(msg);   // log into the closing run's own report BEFORE archiving it
+    addLog(msg, 'ok', 0);
+  } else {
+    addLog('Now streaming: healthy run', 'ok', 0);
+  }
+  SF.newRun('healthy');   // archive the (now-resolved) run and start a fresh one
 });
 
 // Thresholds calibrated against this model's observed severity output range on
